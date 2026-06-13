@@ -1,0 +1,311 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────
+   Demo content_html styles (dark theme — engine)
+   ───────────────────────────────────────────── */
+
+.demo-content h3 {
+  font-weight: 600;
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.demo-content ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+
+.demo-content li {
+  margin: 0.2rem 0;
+}
+
+.demo-content .metric-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content .callout-good {
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  background: rgba(52, 211, 153, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content .callout-warning {
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: rgba(251, 191, 36, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content .callout-danger {
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: rgba(248, 113, 113, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content .workout {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.demo-content .workout-title {
+  font-weight: 700;
+}
+
+.demo-content .workout-meta {
+  font-size: 0.65rem;
+  opacity: 0.6;
+  margin-top: 0.15rem;
+}
+
+/* ─────────────────────────────────────────────
+   Demo content_html styles (light theme — output cards)
+   ───────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────
+   Demo content_html styles (light theme — output cards)
+   ───────────────────────────────────────────── */
+
+.demo-content-light {
+  /* Ported variables */
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #475569;
+  --muted2: #64748b;
+  --border: #e2e8f0;
+
+  --tag-text: #0f172a;
+  --tag-bg: #fff;
+}
+
+.demo-content-light h3 {
+  font-weight: 700;
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: #1f2937;
+  letter-spacing: -0.01em;
+}
+
+.demo-content-light ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+
+.demo-content-light li {
+  margin: 0.2rem 0;
+}
+
+.demo-content-light .metric-card {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content-light .callout-good {
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  background: rgba(52, 211, 153, 0.06);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content-light .callout-warning {
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.06);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content-light .callout-danger {
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  background: rgba(248, 113, 113, 0.06);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content-light .workout {
+  border: 1px solid #e5e7eb;
+  background: #fafafa;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.demo-content-light .workout-title {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.demo-content-light .workout-meta {
+  font-size: 0.65rem;
+  color: #9ca3af;
+  margin-top: 0.15rem;
+}
+
+/* ── Rich Elements for Demo (Tables, Tags) ── */
+
+.demo-content-light .table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.demo-content-light .table th,
+.demo-content-light .table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  text-align: left;
+}
+
+.demo-content-light .table th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted2);
+  font-weight: 700;
+  background: linear-gradient(180deg, rgba(15, 23, 42, .03), rgba(15, 23, 42, 0));
+}
+
+.demo-content-light .table tr:last-child td {
+  border-bottom: none;
+}
+
+.demo-content-light .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  background: var(--tag-bg);
+  color: var(--tag-text);
+  white-space: nowrap;
+}
+
+.demo-content-light .tag--a {
+  border-color: rgba(239, 68, 68, .35);
+  background: rgba(239, 68, 68, .08);
+  color: #991b1b;
+}
+
+.demo-content-light .tag--b {
+  border-color: rgba(245, 158, 11, .35);
+  background: rgba(245, 158, 11, .10);
+  color: #92400e;
+}
+
+/* ─────────────────────────────────────────────
+   Animations
+   ───────────────────────────────────────────── */
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   Theme tokens
+   ───────────────────────────────────────────── */
+
+:root {
+  --background: #0b0f19;
+  --background-subtle: #111827;
+  --foreground: #f0f2f5;
+
+  --surface: #1a1f2e;
+  --surface-elevated: #232938;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-accent: rgba(255, 255, 255, 0.12);
+
+  --text-primary: #f0f2f5;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-dim: #475569;
+
+  --accent-primary: #3b82f6;
+  --accent-success: #22c55e;
+  --accent-warning: #f59e0b;
+  --accent-danger: #ef4444;
+  --accent-info: #06b6d4;
+  --accent-coach: #8b5cf6;
+
+  --glow-success: 0 0 12px rgba(34, 197, 94, 0.3);
+  --glow-warning: 0 0 12px rgba(245, 158, 11, 0.3);
+  --glow-danger: 0 0 12px rgba(239, 68, 68, 0.3);
+  --glow-accent: 0 0 12px rgba(59, 130, 246, 0.3);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-feature-settings: "tnum";
+}
+
+/* ─────────────────────────────────────────────
+   Safe-area insets (notch, home indicator, etc.)
+   ───────────────────────────────────────────── */
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}

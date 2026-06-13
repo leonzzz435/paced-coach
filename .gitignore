@@ -1,0 +1,112 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+!web/app/src/lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.json
+!ai/skills-src/**/*.json
+!web/app/package.json
+!web/app/package-lock.json
+!web/app/tsconfig.json
+!tests/fixtures/*.json
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.env
+.env.dev
+.env.local
+.env.*.local
+web/app/.env.local
+web/app/.env.*.local
+!.env.example
+!web/app/.env.example
+
+# Pixi
+.pixi/
+# Note: pixi.lock should be committed for reproducible builds
+
+# Roo Code
+.roo/
+
+# Agent tooling / instructions (committed)
+# Note: `agents_docs/` is internal documentation; keep it committed unless explicitly decided otherwise.
+.claude/settings.local.json
+my_training_config.dev.yaml
+
+# Patch artifacts
+diff.patch
+*.patch
+
+# Intermediate AI results
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+*.log
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+
+# Tooling
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tmp/
+
+# Logs and runtime artifacts
+logs/
+celerybeat-schedule*
+/tmp/
+
+# Data artifacts
+data/cache/
+data/plots/
+
+# Jupyter notebooks (prevent sensitive data commits)
+*.ipynb
+notebooks/
+.ipynb_checkpoints/
+
+# Any development notebooks that might contain credentials
+**/notebooks/
+**/test_notebooks/
+**/experimental/
+my_training_config.yaml
+
+# Development/diagnostic scripts (untracked)
+scripts/db_inspect_html.py
+agents_docs/roadmap/rca_boring_ui.md

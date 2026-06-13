@@ -1,0 +1,139 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${DATABASE_NAME:-paced_coach}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      AUTH_MODE: ${AUTH_MODE:-local}
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/${DATABASE_NAME:-paced_coach}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODE: ${AI_MODE:-cost_effective}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-paced_coach_local}
+      FERNET_KEY: ${FERNET_KEY:-}
+      LOCAL_OWNER_USER_ID: ${LOCAL_OWNER_USER_ID:-}
+      LOCAL_OWNER_EMAIL: ${LOCAL_OWNER_EMAIL:-local-owner@paced.local}
+      ALLOW_LOCAL_AUTH_PUBLIC_ACCESS: ${ALLOW_LOCAL_AUTH_PUBLIC_ACCESS:-false}
+      ALLOW_LOCAL_DATA_DELETE: ${ALLOW_LOCAL_DATA_DELETE:-false}
+      LOCAL_USAGE_SAFETY_BYPASS: ${LOCAL_USAGE_SAFETY_BYPASS:-false}
+      STRAVA_OAUTH_ENABLED: ${STRAVA_OAUTH_ENABLED:-false}
+      STRAVA_OAUTH_CLIENT_ID: ${STRAVA_OAUTH_CLIENT_ID:-}
+      STRAVA_OAUTH_CLIENT_SECRET: ${STRAVA_OAUTH_CLIENT_SECRET:-}
+      STRAVA_OAUTH_REDIRECT_URI: ${STRAVA_OAUTH_REDIRECT_URI:-}
+      WHOOP_OAUTH_ENABLED: ${WHOOP_OAUTH_ENABLED:-false}
+      WHOOP_OAUTH_CLIENT_ID: ${WHOOP_OAUTH_CLIENT_ID:-}
+      WHOOP_OAUTH_CLIENT_SECRET: ${WHOOP_OAUTH_CLIENT_SECRET:-}
+      WHOOP_OAUTH_REDIRECT_URI: ${WHOOP_OAUTH_REDIRECT_URI:-}
+      PIXI_FROZEN: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - pixi_env:/app/.pixi
+    command: bash -lc "export PATH=/app/.pixi/envs/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; exec uvicorn api.main:app --reload --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      AUTH_MODE: ${AUTH_MODE:-local}
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/${DATABASE_NAME:-paced_coach}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODE: ${AI_MODE:-cost_effective}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-paced_coach_local}
+      FERNET_KEY: ${FERNET_KEY:-}
+      LOCAL_OWNER_USER_ID: ${LOCAL_OWNER_USER_ID:-}
+      LOCAL_OWNER_EMAIL: ${LOCAL_OWNER_EMAIL:-local-owner@paced.local}
+      ALLOW_LOCAL_DATA_DELETE: ${ALLOW_LOCAL_DATA_DELETE:-false}
+      LOCAL_USAGE_SAFETY_BYPASS: ${LOCAL_USAGE_SAFETY_BYPASS:-false}
+      STRAVA_OAUTH_ENABLED: ${STRAVA_OAUTH_ENABLED:-false}
+      STRAVA_OAUTH_CLIENT_ID: ${STRAVA_OAUTH_CLIENT_ID:-}
+      STRAVA_OAUTH_CLIENT_SECRET: ${STRAVA_OAUTH_CLIENT_SECRET:-}
+      STRAVA_OAUTH_REDIRECT_URI: ${STRAVA_OAUTH_REDIRECT_URI:-}
+      WHOOP_OAUTH_ENABLED: ${WHOOP_OAUTH_ENABLED:-false}
+      WHOOP_OAUTH_CLIENT_ID: ${WHOOP_OAUTH_CLIENT_ID:-}
+      WHOOP_OAUTH_CLIENT_SECRET: ${WHOOP_OAUTH_CLIENT_SECRET:-}
+      WHOOP_OAUTH_REDIRECT_URI: ${WHOOP_OAUTH_REDIRECT_URI:-}
+      PIXI_FROZEN: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - pixi_env:/app/.pixi
+    command: bash -lc "export PATH=/app/.pixi/envs/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; exec celery -A worker.celery_app worker -l info"
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      AUTH_MODE: ${AUTH_MODE:-local}
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/${DATABASE_NAME:-paced_coach}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODE: ${AI_MODE:-cost_effective}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-paced_coach_local}
+      FERNET_KEY: ${FERNET_KEY:-}
+      LOCAL_OWNER_USER_ID: ${LOCAL_OWNER_USER_ID:-}
+      LOCAL_OWNER_EMAIL: ${LOCAL_OWNER_EMAIL:-local-owner@paced.local}
+      ALLOW_LOCAL_DATA_DELETE: ${ALLOW_LOCAL_DATA_DELETE:-false}
+      LOCAL_USAGE_SAFETY_BYPASS: ${LOCAL_USAGE_SAFETY_BYPASS:-false}
+      PIXI_FROZEN: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - pixi_env:/app/.pixi
+    command: bash -lc "export PATH=/app/.pixi/envs/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; exec celery -A worker.celery_app beat -l info"
+
+volumes:
+  postgres_data:
+  pixi_env:

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f172a" />
+      <stop offset="0.7" stop-color="#09090b" />
+      <stop offset="1" stop-color="#18181b" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" rx="56" fill="url(#bg)" />
+
+  <g fill="#fff" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">
+    <text x="96" y="170" font-size="40" opacity="0.9">paced.coach</text>
+    <text x="96" y="260" font-size="78" font-weight="700">Stop rewriting</text>
+    <text x="96" y="332" font-size="78" font-weight="700">your plan.</text>
+    <text x="96" y="408" font-size="38" opacity="0.9">Season roadmap, 28-day plan, daily coaching.</text>
+
+    <g transform="translate(96 470)" opacity="0.9">
+      <rect x="0" y="0" width="430" height="56" rx="18" fill="#fff" opacity="0.08" />
+      <text x="22" y="38" font-size="28">For self-coached endurance athletes</text>
+    </g>
+  </g>
+
+  <g transform="translate(900 120)">
+    <rect x="0" y="0" width="220" height="220" rx="64" fill="#fff" opacity="0.1" />
+    <path
+      d="M60 150c32-72 68-72 100 0"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="14"
+      stroke-linecap="round"
+      opacity="0.95"
+    />
+    <path
+      d="M55 85c18-18 38-26 55-26s37 8 55 26"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="14"
+      stroke-linecap="round"
+      opacity="0.75"
+    />
+  </g>
+</svg>

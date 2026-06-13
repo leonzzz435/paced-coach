@@ -1,0 +1,18 @@
+# Public source archives should contain tracked source/docs only.
+# Local secret files are ignored, but these rules also keep generated or private
+# convenience paths out of `git archive` outputs.
+.env export-ignore
+.env.* export-ignore
+web/app/.env.local export-ignore
+my_training_config*.yaml export-ignore
+celerybeat-schedule* export-ignore
+
+data/ export-ignore
+tmp/ export-ignore
+.tmp/ export-ignore
+.coverage export-ignore
+.mypy_cache/ export-ignore
+.pytest_cache/ export-ignore
+.ruff_cache/ export-ignore
+.next/ export-ignore
+web/app/.next/ export-ignore

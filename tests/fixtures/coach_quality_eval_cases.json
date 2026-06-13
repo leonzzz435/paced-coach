@@ -1,0 +1,22 @@
+[
+  {
+    "scenario_id": "progression_block_week_3_adjustment",
+    "category": "progression",
+    "description": "Athlete in build phase asks whether to increase load after two strong weeks."
+  },
+  {
+    "scenario_id": "race_taper_week_minus_10_days",
+    "category": "taper_week",
+    "description": "Athlete is ten days out from A race and asks about maintaining intensity."
+  },
+  {
+    "scenario_id": "injury_niggle_after_intervals",
+    "category": "injury_mention",
+    "description": "Athlete reports worsening knee pain after threshold session."
+  },
+  {
+    "scenario_id": "plan_change_negotiation_family_travel",
+    "category": "plan_change_negotiation",
+    "description": "Athlete needs to adapt schedule due to travel and wants options."
+  }
+]

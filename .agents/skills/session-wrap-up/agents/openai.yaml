@@ -1,0 +1,4 @@
+interface:
+  display_name: "Session Wrap-Up"
+  short_description: "Close out work and promote durable improvements"
+  default_prompt: "Use $session-wrap-up to summarize this session, capture repeated corrections, and safely promote durable improvements."

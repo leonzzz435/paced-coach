@@ -1,0 +1,16 @@
+title = "paced-coach gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "UI fixture block identifiers are schema keys, not API keys"
+paths = ['''web/app/src/lib/demo/fixtures/v1/season\.ts''']
+regexTarget = "match"
+regexes = ['''"?key"?:\s*"[-A-Za-z0-9]+"''']
+
+[[allowlists]]
+description = "Deleted observability tests used fake secret-key strings"
+paths = ['''tests/test_observability\.py''']
+regexTarget = "match"
+regexes = ['''api",\s*"[^"]+"''']

@@ -1,0 +1,88 @@
+[project]
+name = "paced-coach"
+version = "2.2.0"
+description = "Local-first AI endurance coaching app"
+authors = ["Leon Zajchowski <l.zajchowski@web.de>"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+[dependencies]
+python = ">=3.13.0,<3.14"
+pip = ">=25.2,<26"
+pre-commit = ">=4.3.0,<5"
+
+[pypi-dependencies]
+# Install the project itself in editable mode
+paced-coach = { path = ".", editable = true }
+anthropic = ">=0.97.0, <0.98"
+pydantic = ">=2.12, <3"
+pydantic-settings = ">=2.0, <3"
+requests = ">=2.32.0, <3"
+langchain = ">=1.0.0, <2"
+langchain-openai = ">=1.0.0, <2"
+langchain-anthropic = ">=1.4.3, <2"
+langchain-community = ">=0.4, <0.5"
+langchain-core = ">=1.0.0, <2"
+langgraph = ">=1.0.0, <2"
+langsmith = ">=0.4.37, <0.5"
+numpy = ">=2.3.4, <3"
+pandas = ">=2.3.3, <3"
+plotly = ">=6.3.1, <7"
+python-dotenv = ">=1.1.1, <2"
+setuptools = "*"
+pytest = ">=8.4.2, <9"
+pytest-cov = ">=7.0.0, <8"
+pytest-asyncio = ">=1.2.0, <2"
+black = ">=25.9.0, <26"
+isort = ">=7.0.0, <8"
+flake8 = ">=7.3.0, <8"
+mypy = ">=1.18.2, <2"
+ruff = ">=0.14.1, <0.15"
+vulture = ">=2.14, <3"
+types-PyYAML = "*"
+types-requests = "*"
+# Web app dependencies (Phase 2)
+cryptography = ">=44.0.0, <45"
+fastapi = ">=0.115.0, <0.116"
+uvicorn = {version = ">=0.34.0, <0.35", extras = ["standard"]}
+sqlalchemy = ">=2.0.0, <3"
+asyncpg = ">=0.30.0, <0.31"
+psycopg2-binary = ">=2.9.0, <3"
+alembic = ">=1.14.0, <2"
+celery = {version = ">=5.4.0, <6", extras = ["redis"]}
+nh3 = ">=0.2, <1"
+
+[tasks]
+# Development tasks
+dev = "uvicorn api.main:app --reload --host 127.0.0.1 --port 8000"
+dev-up = "docker compose up"
+dev-web = "npm run dev"
+dev-all = "bash scripts/dev_all.sh"
+dev-down = "docker compose down"
+test = "pytest && (cd web/app && PATH=\"./node_modules/.bin:$PATH\" npm run test && PATH=\"./node_modules/.bin:$PATH\" npm run type-check)"
+test-cov = "pytest --cov=. --cov-report=term-missing --cov-report=html"
+lint = "flake8 ."
+lint-ruff = "ruff check ."
+ruff-fix = "ruff check --fix ."
+format = "black . && isort ."
+type-check = "mypy ."
+
+# Dead code detection
+dead-code = "vulture --config vulture.toml"
+dead-code-all = "vulture --config vulture.toml --min-confidence 60"
+dead-code-verbose = "vulture --config vulture.toml --verbose"
+
+seed-active-plans = "PYTHONPATH=. python cli/seed_active_plans.py"
+
+# Web API (Phase 2)
+api = "uvicorn api.main:app --reload --host 127.0.0.1 --port 8000"
+worker = "celery -A worker.celery_app worker -l info --concurrency=2"
+worker-beat = "bash scripts/local_celery.sh beat -l info"
+cron-memory-compaction = "bash scripts/local_celery.sh call worker.tasks.run_nightly_coach_memory_compaction_task"
+cron-idempotency-cleanup = "bash scripts/local_celery.sh call worker.tasks.run_coach_idempotency_cleanup_task"
+sync-version-manifest = "python scripts/sync_version_manifest.py"
+check-version-manifest = "python scripts/sync_version_manifest.py --check"
+check-version-governance = "python scripts/check_version_governance.py"
+
+[environments]
+default = { solve-group = "default" }

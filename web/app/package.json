@@ -1,0 +1,38 @@
+{
+  "name": "app",
+  "version": "2.2.0",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "tsx src/tests/fixtures/validate-fixtures.ts && tsx src/tests/security/html-snippet-ssr.tsx && tsx src/tests/coach/coach-turn-sse.ts && tsx src/tests/coach/coach-turn-route.ts && tsx src/tests/api/api-timeout.ts && tsx src/tests/api/daily-run-route.ts && tsx src/tests/oauth/whoop-callback-route.ts && tsx src/tests/oauth/strava-callback-route.ts && tsx src/tests/plan/plan-api-paths.ts && tsx src/tests/plan/day-display.ts && tsx src/tests/plan/calendar-grid.ts && tsx src/tests/plan/season-progress-time.ts && tsx src/tests/dashboard/daily-sync-preview.ts && tsx src/tests/dashboard/header-badges.ts && tsx src/tests/dashboard/no-demo-fallback.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.3.1",
+    "lucide-react": "^0.577.0",
+    "next": "^16.2.9",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.20.5",
+    "typescript": "^5"
+  }
+}

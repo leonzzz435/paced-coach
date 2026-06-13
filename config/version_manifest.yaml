@@ -1,0 +1,17 @@
+manifest_version: 1
+
+release:
+  version: "2.2.0"
+
+components:
+  ui_schema:
+    version: "1.0.0"
+    current_schema_version: 1
+  db_schema:
+    version: "1.0.0"
+    alembic_head: "001_initial_local_first"
+
+compatibility:
+  ui_schema:
+    supported_versions: [1]
+    default_version: 1

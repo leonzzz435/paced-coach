@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: ['*']
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    if: |
+      github.event_name == 'pull_request' ||
+      (
+        !contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]')
+      )
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      API_BASE_URL: "http://127.0.0.1:8000"
+      OPENAI_API_KEY: "sk-TEST"
+      AI_MODE: "cost_effective"
+      APP_ENV: "test"
+      AUTH_MODE: "local"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/app/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web/app
+        run: npm ci
+
+      - name: Web lint
+        working-directory: web/app
+        run: npm run lint
+
+      - name: Web type check
+        working-directory: web/app
+        run: npm run type-check
+
+      - name: Web tests
+        working-directory: web/app
+        run: npm run test
+
+      - name: Web build
+        working-directory: web/app
+        run: npm run build
+
+      - name: Install pixi
+        shell: bash
+        run: |
+          bash ./scripts/install_pixi.sh "$HOME/.pixi/bin"
+          echo "$HOME/.pixi/bin" >> $GITHUB_PATH
+
+      - name: Pixi version
+        run: pixi --version
+
+      - name: Install dependencies
+        run: pixi install -q
+
+      - name: Check version manifest sync
+        run: pixi run check-version-manifest
+
+      - name: Check version governance coverage
+        run: pixi run check-version-governance
+
+      - name: Lint (ruff)
+        run: pixi run lint-ruff
+
+      - name: Type Check (mypy)
+        run: pixi run type-check
+
+      - name: Run tests
+        env:
+          ANTHROPIC_API_KEY: "sk-ant-TEST"
+        run: pixi run test

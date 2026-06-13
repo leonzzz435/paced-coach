@@ -1,0 +1,12 @@
+# .codex/config.toml
+# Codex project defaults (repo-local)
+
+sandbox_mode = "workspace-write"
+approval_policy = "untrusted"
+
+[sandbox_workspace_write]
+network_access = true
+
+[shell_environment_policy]
+inherit = "none"
+include_only = ["PATH", "HOME", "LANG", "TERM"]

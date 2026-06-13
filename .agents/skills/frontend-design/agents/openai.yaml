@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Design"
+  short_description: "Choose a deliberate UI direction for web work"
+  default_prompt: "Use $frontend-design to choose a deliberate visual direction for this web task and avoid generic layouts."
