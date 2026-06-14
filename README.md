@@ -1,64 +1,78 @@
 # paced.coach
 
-Local-first AI endurance coaching app.
+Local-first AI endurance coaching app for self-coached athletes.
 
-This repo contains a single-user web app, FastAPI backend, Celery worker, Postgres/Redis local stack, and LangGraph-based coaching workflows. The default public setup runs on localhost, uses your local database, and does not require hosted auth, hosted payments, production deploy tooling, or a connected training provider.
+paced.coach gives you a full web app, FastAPI backend, Celery worker, local Postgres/Redis stack, and LangGraph-based coaching workflows. It runs on your machine by default. There is no hosted auth, no hosted payments, no production deploy requirement, and no required training-provider connection.
 
-You need one LLM key to generate plans. Strava and WHOOP are optional connected-data sources; the app works without them.
+You bring one LLM key. Strava and WHOOP OAuth are optional when you want connected daily sync and weekly recaps.
 
 Not affiliated with Strava or WHOOP. Not medical advice.
 
-## What It Does
+![paced.coach local-first AI endurance coach](docs/assets/readme/paced-coach-hero.png)
 
-- Builds a season roadmap and a 28-day training block.
-- Uses a saved athlete profile, goals/race calendar, constraints, and optional generation notes.
-- Lets you view the active plan and ask the coach questions about it.
-- Supports optional Strava/WHOOP OAuth for connected daily sync and weekly recap.
-- Keeps confidence boundaries explicit when no connected activity/recovery data exists.
+## Preview
+
+The screenshots below are generated from the public `/demo` route using sanitized fixture data. They do not read a local database or real athlete account.
+
+<p>
+  <img src="docs/assets/readme/paced-coach-dashboard.png" alt="paced.coach dashboard with daily focus, recovery gates, weekly recap, daily sync, and season progress" width="49%" />
+  <img src="docs/assets/readme/paced-coach-plan.png" alt="paced.coach generated training plan with season roadmap and 28-day calendar" width="49%" />
+</p>
+
+![paced.coach coach workspace preview](docs/assets/readme/paced-coach-coach.png)
+
+Open the same preview locally at `http://localhost:3000/demo` after `make start`.
+
+## What You Get
+
+- A local web app for profile, race calendar, plan generation, active plan review, and coach conversations.
+- AI-generated season roadmap plus a 28-day execution block.
+- Versioned plan renderers for coach report, season strategy, and calendar-style weekly plan views.
+- Optional Strava and WHOOP OAuth for connected daily sync and weekly recap.
+- Explicit confidence boundaries when only declared profile/goals are available.
+- Local-first data posture: your app database is your local Postgres volume.
 
 ## Requirements
 
 - Docker with Docker Compose v2
 - Pixi
 - Node.js 24 and npm
-- One LLM API key: `OPENAI_API_KEY` for the default mode, or `ANTHROPIC_API_KEY` with `AI_MODE=anthropic`
+- One LLM key: `OPENAI_API_KEY` for the default mode, or `ANTHROPIC_API_KEY` with `AI_MODE=anthropic`
 
 ## Quick Start
 
 ```bash
-git clone <repo-url>
-cd <repo-directory>
+git clone https://github.com/leonzzz435/paced-coach.git
+cd paced-coach
 
 cp .env.example .env
 cp web/app/.env.example web/app/.env.local
 
 # Edit .env and set OPENAI_API_KEY.
 # Alternative: set AI_MODE=anthropic and ANTHROPIC_API_KEY instead.
-# Optional if you want Strava/WHOOP later: generate FERNET_KEY and provider OAuth values.
+# Optional for Strava/WHOOP later: generate FERNET_KEY and provider OAuth values.
 
 make setup
-
 make start
 ```
-
-`make setup` installs Python dependencies with Pixi and web dependencies with `npm ci --ignore-scripts`.
-The ignored lifecycle scripts are intentional for reproducible local setup; CI still validates the normal npm install path.
 
 Open:
 
 - Web app: `http://localhost:3000`
+- Demo preview: `http://localhost:3000/demo`
 - API docs: `http://localhost:8000/docs`
 
-`make start` starts local Postgres, Redis, API, worker, beat, runs migrations, and starts the Next.js dev server. It is a wrapper around `pixi run dev-all`.
+`make setup` installs Python dependencies with Pixi and web dependencies with `npm ci --ignore-scripts`.
+`make start` starts local Postgres, Redis, API, worker, beat, runs migrations, and starts the Next.js dev server.
 
 ## First Useful Run
 
 1. Open `http://localhost:3000/app`.
 2. Complete `/app/profile`.
-3. Add a primary goal or race in `/app/competitions`.
+3. Add a primary race or goal in `/app/competitions`.
 4. Generate a plan from `/app/new`.
-5. Read the plan at `/app/plan`.
-6. Ask plan questions at `/app/coach`.
+5. Read the active plan at `/app/plan`.
+6. Ask questions in `/app/coach`.
 
 Strava and WHOOP are not required for this path. Without connected data, the coach must not claim recent load, compliance, HRV, sleep, recovery, or readiness trends.
 
@@ -131,15 +145,17 @@ Fresh installs use `LOCAL_OWNER_KEY=local-owner` as the stable owner key. Existi
 
 Fresh public installs use one baseline database migration: `001_initial_local_first`. If you already ran a pre-public branch with older migration revisions, back up your database and follow [docs/local-first/data-preservation.md](docs/local-first/data-preservation.md) before running the app.
 
-More detail: [docs/local-first/privacy-and-data.md](docs/local-first/privacy-and-data.md) and [docs/local-first/data-preservation.md](docs/local-first/data-preservation.md).
+More detail:
+
+- [Privacy and data](docs/local-first/privacy-and-data.md)
+- [Data preservation](docs/local-first/data-preservation.md)
+- [AI coaching limitations](docs/local-first/ai-coaching-limitations.md)
 
 ## Safety Model
 
-The default app has no login because it is intended for localhost single-user use. Do not expose it to the public internet without adding authentication, TLS, network hardening, and a separate security review.
+The default app has no login because it is intended for localhost single-user use. Do not expose it to a LAN or the public internet without adding authentication, TLS, network hardening, and a separate security review.
 
 Docker Compose binds API, Postgres, and Redis to loopback by default. Keep it that way for local use.
-
-AI coaching limitations are documented in [docs/local-first/ai-coaching-limitations.md](docs/local-first/ai-coaching-limitations.md).
 
 ## Development
 
@@ -177,19 +193,13 @@ agents_docs/         Internal planning and architecture notes
 tests/               Python tests
 ```
 
-## Privacy
-
-Your local profile, competitions, provider tokens, plans, jobs, and coaching history live in your local Postgres database. Plan generation sends relevant prompt context to your configured LLM provider. If `LANGSMITH_API_KEY` is set, traces can include prompt and response content.
-
-There is no hidden telemetry required for local-first use.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 
-See [SECURITY.md](SECURITY.md).
+See [SECURITY.md](SECURITY.md). Never commit real credentials, local `.env` files, provider tokens, database dumps, or private athlete exports.
 
 ## License
 
