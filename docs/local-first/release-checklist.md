@@ -4,15 +4,15 @@ Use this checklist for each public release. It is a release gate, not a general 
 
 ## Safety Boundary
 
-- [ ] Work from a dedicated release branch and a fixed candidate commit.
+- [x] Work from a dedicated release branch and a fixed candidate commit.
 - [x] Do not read, copy, reset, migrate, or delete the maintainer's local athlete database.
 - [x] Keep `.env`, `web/app/.env.local`, database volumes, logs, exports, and model traces out of release evidence.
 - [x] Keep the no-login app bound to loopback.
 
 ## Repository Audit
 
-- [ ] The working tree is clean.
-- [ ] `scripts/release_audit.sh` passes using pinned Gitleaks for the clean candidate commit.
+- [x] The working tree is clean.
+- [x] `scripts/release_audit.sh` passes using pinned Gitleaks for the clean candidate commit.
 - [x] The current working-tree candidate export passes the pinned Gitleaks content scan.
 - [x] Any scanner report under `.tmp/release-audit/` is fully redacted and remains untracked.
 - [x] Screenshots and synthetic fixtures have been inspected visually for private athlete data.
