@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from services.ai.langgraph.nodes.orchestrator_node import ConsoleInteractionProvider
+from services.ai.langgraph.nodes.orchestrator_node import ConsoleInteractionProvider, MasterOrchestrator
 
 
 @pytest.mark.unit
@@ -27,3 +27,14 @@ def test_console_interaction_provider_does_not_log_raw_answers(monkeypatch, capl
     assert answers[0]["answer"] == sensitive_answer
     assert sensitive_answer not in caplog.text
     assert "answer_chars=" in caplog.text
+
+
+@pytest.mark.unit
+def test_orchestrator_stops_before_downstream_planning_when_required_ai_stage_failed():
+    state = {
+        "errors": ["Metrics expert failed: insufficient_quota"],
+        "synthesis_complete": False,
+    }
+
+    with pytest.raises(RuntimeError, match=r"Required AI stage failed.*insufficient_quota"):
+        MasterOrchestrator()(state)  # type: ignore[arg-type]

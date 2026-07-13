@@ -4,15 +4,18 @@ from services.ai.coach.continuum_turn_agent import _TURN_SYSTEM_PROMPT
 from services.ai.coach.plan_modifier_agent import SYSTEM_PROMPT as PLAN_MODIFIER_SYSTEM_PROMPT
 from services.ai.daily.daily_update_agent import DAILY_SYSTEM_PROMPT
 from services.ai.langgraph.nodes.activity_expert_node import ACTIVITY_EXPERT_USER_PROMPT
+from services.ai.langgraph.nodes.analysis_formatter_node import ANALYSIS_FORMATTER_SYSTEM_PROMPT
 from services.ai.langgraph.nodes.metrics_expert_node import METRICS_SYSTEM_PROMPT_BASE, METRICS_USER_PROMPT
 from services.ai.langgraph.nodes.physiology_expert_node import PHYSIOLOGY_SYSTEM_PROMPT_BASE, PHYSIOLOGY_USER_PROMPT
 from services.ai.langgraph.nodes.plan_formatter_node import WEEKLY_FORMATTER_SYSTEM_PROMPT
+from services.ai.langgraph.nodes.prompt_components import PROVIDER_OPTIONAL_COACHING_POLICY
 from services.ai.langgraph.nodes.season_formatter_node import season_formatter_node
 from services.ai.langgraph.nodes.season_planner_node import (
     SEASON_PLANNER_SYSTEM_PROMPT,
     SEASON_PLANNER_UPDATE_ONLY_PROMPT,
     SEASON_PLANNER_USER_PROMPT,
 )
+from services.ai.langgraph.nodes.synthesis_node import SYNTHESIS_SYSTEM_PROMPT, SYNTHESIS_USER_PROMPT
 from services.ai.langgraph.nodes.weekly_formatter_node import WEEKLY_FORMATTER_USER_PROMPT_TEMPLATE
 from services.ai.langgraph.nodes.weekly_planner_node import (
     WEEKLY_PLANNER_FINAL_CHECKLIST,
@@ -189,3 +192,13 @@ def test_expert_prompts_distinguish_provider_native_load_and_proxy_physiology():
     assert "vendor-specific load proxy" not in METRICS_SYSTEM_PROMPT_BASE
     assert "provider-native load series" in METRICS_SYSTEM_PROMPT_BASE
     assert "proxy-only activity stress signals" in PHYSIOLOGY_SYSTEM_PROMPT_BASE
+
+
+def test_analysis_prompts_keep_connected_sources_optional():
+    downstream_prompts = f"{SYNTHESIS_SYSTEM_PROMPT}\n{ANALYSIS_FORMATTER_SYSTEM_PROMPT}"
+
+    assert "Connected activity and recovery sources are optional precision enhancements" in PROVIDER_OPTIONAL_COACHING_POLICY
+    assert "Treat declared goals, availability, physiology anchors, constraints, competitions" in downstream_prompts
+    assert "Do not tell the athlete to connect, reconnect, restore, or start tracking" in downstream_prompts
+    assert "Do not prescribe conservative training solely because optional device data is absent" in downstream_prompts
+    assert "Training Evidence" in SYNTHESIS_USER_PROMPT

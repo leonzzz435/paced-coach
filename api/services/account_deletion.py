@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import logging
 import uuid
-from dataclasses import dataclass
 from types import SimpleNamespace
 
-import httpx
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,17 +31,6 @@ from api.models.local_usage import LocalUsageCounter, LocalUsageEvent, LocalUsag
 from api.models.oauth_session import OAuthSession
 from api.models.user import User
 from api.models.weekly_recap_run import WeeklyRecapRun
-from api.services.crypto import get_crypto_service
-from services.strava.oauth import STRAVA_DEAUTHORIZE_URL
-from services.whoop.oauth import WHOOP_REVOKE_URL
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class _ProviderRevocation:
-    provider: str
-    access_token: str
 
 
 def _local_reset_success_payload() -> dict[str, str]:
@@ -69,75 +54,12 @@ def _local_data_delete_disabled_payload() -> dict[str, object]:
     }
 
 
-def _revoke_whoop_access_sync(*, access_token: str):
-    headers = {"Authorization": f"Bearer {access_token}"}
-    with httpx.Client(timeout=10.0) as client:
-        response = client.delete(WHOOP_REVOKE_URL, headers=headers)
-        response.raise_for_status()
-
-
-def _revoke_strava_access_sync(*, access_token: str):
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(STRAVA_DEAUTHORIZE_URL, data={"access_token": access_token})
-        response.raise_for_status()
-
-
 async def _load_user_for_deletion(db: AsyncSession, *, user_id: uuid.UUID) -> SimpleNamespace:
     row = await db.execute(select(User.id).where(User.id == user_id))
     user = row.one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return SimpleNamespace(id=user.id)
-
-
-async def _collect_provider_revocations(db: AsyncSession, *, user_id: uuid.UUID) -> list[_ProviderRevocation]:
-    revocations: list[_ProviderRevocation] = []
-
-    try:
-        whoop_creds = await db.execute(select(WhoopCredentials).where(WhoopCredentials.user_id == user_id))
-        whoop_row = whoop_creds.scalar_one_or_none()
-        if whoop_row is not None:
-            crypto = get_crypto_service()
-            revocations.append(
-                _ProviderRevocation(
-                    provider="whoop",
-                    access_token=crypto.decrypt(whoop_row.encrypted_access_token),
-                )
-            )
-    except Exception:
-        logger.warning("Failed to prepare Whoop token revocation during account delete for user %s", user_id, exc_info=True)
-
-    try:
-        strava_creds = await db.execute(select(StravaCredentials).where(StravaCredentials.user_id == user_id))
-        strava_row = strava_creds.scalar_one_or_none()
-        if strava_row is not None:
-            crypto = get_crypto_service()
-            revocations.append(
-                _ProviderRevocation(
-                    provider="strava",
-                    access_token=crypto.decrypt(strava_row.encrypted_access_token),
-                )
-            )
-    except Exception:
-        logger.warning("Failed to prepare Strava token revocation during account delete for user %s", user_id, exc_info=True)
-
-    return revocations
-
-
-async def _revoke_provider_access(revocations: list[_ProviderRevocation], *, user_id: uuid.UUID):
-    for revocation in revocations:
-        try:
-            if revocation.provider == "whoop":
-                await asyncio.to_thread(_revoke_whoop_access_sync, access_token=revocation.access_token)
-            elif revocation.provider == "strava":
-                await asyncio.to_thread(_revoke_strava_access_sync, access_token=revocation.access_token)
-        except Exception:
-            logger.warning(
-                "Failed to revoke %s token after account delete for user %s",
-                revocation.provider,
-                user_id,
-                exc_info=True,
-            )
 
 
 async def _delete_local_account_records(db: AsyncSession, *, user_id: uuid.UUID, delete_user: bool = True):
@@ -187,11 +109,8 @@ async def delete_account_and_data(db: AsyncSession, *, user_id: uuid.UUID) -> di
         raise HTTPException(status_code=403, detail=_local_data_delete_disabled_payload())
 
     await _load_user_for_deletion(db, user_id=user_id)
-    provider_revocations = await _collect_provider_revocations(db, user_id=user_id)
-
     db.info[DB_SKIP_AUTO_COMMIT_FLAG] = True
     await _delete_local_account_records(db, user_id=user_id, delete_user=False)
     await db.commit()
-    await _revoke_provider_access(provider_revocations, user_id=user_id)
 
     return _local_reset_success_payload()

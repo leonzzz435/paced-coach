@@ -7,18 +7,19 @@ paced.coach is training-support software, not medical care.
 - Turn your saved profile, goals, constraints, races, and plan history into coaching context.
 - Generate a season roadmap and a 28-day execution block.
 - Answer plan questions and propose adaptations.
-- Use Strava and WHOOP context when you intentionally configure and connect those providers.
+
+No wearable is required. A supported LLM key plus athlete-declared training history, goals, availability, constraints, and feedback can support a specific, useful plan. Version 2.2.0 does not connect to external training-data providers.
 
 ## What The Coach Must Not Claim
 
-When Strava/WHOOP are not connected, outputs must not claim knowledge of:
+Outputs must not claim knowledge of information the athlete did not provide, including:
 
 - recent activity history
 - training load or compliance
 - sleep, HRV, recovery, or readiness trends
 - injury status beyond what you explicitly entered
 
-When connected data is stale, partial, or unavailable, the coach should say so and reason with uncertainty.
+When athlete-provided context is stale, partial, or unavailable, the coach should say so and reason with uncertainty.
 
 ## Human Responsibility
 
@@ -28,7 +29,7 @@ Consult a qualified professional before making medical, rehabilitation, nutritio
 
 ## LLM Data Boundary
 
-Plan generation and coaching send relevant prompt context to the configured LLM provider. That context can include profile details, goals, constraints, plan content, coach history, and connected training data.
+Plan generation and coaching send relevant prompt context to the configured LLM provider. That context can include profile details, goals, constraints, plan content, and coach history.
 
 Do not enter information you do not want sent to your configured LLM provider.
 
@@ -37,8 +38,6 @@ Do not enter information you do not want sent to your configured LLM provider.
 The default app stores data locally and has no hidden telemetry requirement. External network paths are:
 
 - the configured LLM provider
-- Strava, if OAuth is configured and connected
-- WHOOP, if OAuth is configured and connected
 - LangSmith, if `LANGSMITH_API_KEY` is configured
 
-Leave optional integrations unset if you do not want those paths.
+Leave LangSmith unset if you do not want the optional tracing path.

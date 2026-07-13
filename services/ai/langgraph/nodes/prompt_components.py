@@ -12,6 +12,20 @@ AgentType = Literal[
     "weekly_planner",
 ]
 
+PROVIDER_OPTIONAL_COACHING_POLICY = """
+## Provider-Optional Coaching Contract
+- Connected activity and recovery sources are optional precision enhancements, never prerequisites for useful coaching.
+- Treat declared goals, availability, physiology anchors, constraints, competitions, and athlete check-ins as valid coaching
+  evidence. Lead with what those inputs support instead of centering absent device data.
+- If no connected source or measurements are available, state measured trends as unavailable once and neutrally. Never
+  interpret zero records as inactivity, rest, detraining, poor compliance, or a need to rebuild.
+- Do not tell the athlete to connect, reconnect, restore, or start tracking. Do not make connecting a source the primary
+  action, a safety requirement, or a condition for following the plan.
+- Do not prescribe conservative training solely because optional device data is absent. Calibrate from declared context,
+  explicit uncertainty, athlete-reported response, and event demands; provide practical self-checks and adjustment cues.
+- You may mention optional sources only as a secondary way to increase future precision, never as the coaching outcome.
+"""
+
 
 def get_workflow_context(agent_type: AgentType) -> str:
     # Summarizer agents

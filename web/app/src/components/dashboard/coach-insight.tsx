@@ -70,7 +70,7 @@ export default function CoachInsight({ surface, onOpenWeeklyRecap, allowPlanLink
           Ready to plan your next block?
         </p>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          Generate a plan, run daily sync, or complete your weekly recap to get current coaching guidance here.
+          Generate a plan or ask the coach about your current calendar to get guidance here.
         </p>
       </section>
     );

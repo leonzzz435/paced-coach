@@ -204,6 +204,8 @@ def test_first_run_state_routes_missing_llm_key_before_profile_or_provider(monke
     assert state["next_step"] == "llm_key"
     assert state["primary_action"] is None
     assert "OPENAI_API_KEY" in state["blockers"][0]
+    assert "Strava" not in " ".join(state["blockers"])
+    assert "WHOOP" not in " ".join(state["blockers"])
 
 
 def test_first_run_state_routes_profile_and_goal_without_provider_setup(monkeypatch):
@@ -247,6 +249,8 @@ def test_first_run_state_routes_profile_and_goal_without_provider_setup(monkeypa
     )
     assert ready_state["next_step"] == "generate"
     assert ready_state["primary_action"] == {"label": "Generate plan", "href": "/app/new"}
+    assert "No wearable required" in ready_state["body"]
+    assert "Draft Mode" not in ready_state["body"]
 
 
 def test_first_run_state_routes_generated_plan_to_plan_view(monkeypatch):
@@ -373,35 +377,28 @@ async def test_build_dashboard_state_prepends_daily_focus_blocks_and_exposes_ban
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
     assert state["athlete_time"]["timezone"] == "America/Los_Angeles"
-    assert state["daily_sync"]["status"] == "completed"
-    assert state["daily_sync"]["visible"] is True
-    assert "Protect today." in state["daily_sync"]["verdict_preview"]
-    assert state["daily_sync"]["sources_used"] == ["strava", "whoop"]
+    assert state["daily_sync"]["status"] == "idle"
+    assert state["daily_sync"]["visible"] is False
+    assert state["daily_sync"]["verdict_preview"] is None
+    assert state["daily_sync"]["sources_used"] == []
     assert state["daily_sync"]["can_run"] is False
-    assert state["daily_sync"]["attention_message"] == "No training data source connected. Connect a supported training source first."
-    assert state["status_surface"]["source"] == "daily_update"
-    assert state["status_surface"]["label"] == "Morning sync"
-    assert state["status_surface"]["target_date"] == "2026-03-05"
-    assert state["status_surface"]["kpis"][0]["kpi_id"] == "sleep-duration-score"
-    assert state["coach_surface"]["source"] == "daily_sync"
-    assert state["coach_surface"]["scope"] == "today"
-    assert state["coach_surface"]["primary_label"] == "Today's Action"
-    assert state["coach_surface"]["primary_text"] == "Protect today."
-    assert state["coach_surface"]["secondary_text"] == "Keep the set controlled."
+    assert state["daily_sync"]["attention_message"] == "Daily Sync is not included in the provider-free v2.2.0 release."
+    assert state["status_surface"]["source"] == "none"
+    assert state["status_surface"]["kpis"] == []
+    assert state["coach_surface"]["source"] == "none"
     assert state["pending_proposal_banner"]["proposal_id"] == str(pending_proposal.id)
     assert state["pending_proposal_banner"]["thread_id"] == str(pending_proposal.thread_id)
     assert state["weekly_recap"]["status"] == "hidden"
     assert state["weekly_recap"]["can_run"] is False
-    assert state["weekly_recap"]["attention_message"] == "No training data source connected. Connect a supported training source first."
+    assert state["weekly_recap"]["attention_message"] == "Weekly Recap is not included in the provider-free v2.2.0 release."
     assert "Fill key profile fields to improve intensity and constraint handling." in state["today_mission"]["warnings"]
     assert "Add at least one competition to anchor periodization and race specificity." in state["today_mission"]["warnings"]
-    assert "No training data source connected. Connect a supported training source first." in state["today_mission"]["warnings"]
+    assert all("training source" not in warning for warning in state["today_mission"]["warnings"])
 
     day_override = state["today_mission"]["day_override"]
     assert day_override is not None
     assert day_override["nodes"] == []
-    assert day_override["blocks"][0]["key"] == "focus-verdict"
-    assert day_override["blocks"][1]["key"] == "planned-threshold"
+    assert day_override["blocks"][0]["key"] == "planned-threshold"
     assert day_override["readiness_note"] == "Base readiness note."
 
 
@@ -461,16 +458,6 @@ async def test_build_dashboard_state_surfaces_provider_attention_before_daily_sy
         fake_evaluate_weekly_recap_availability,
     )
     monkeypatch.setattr("api.services.dashboard_state.get_local_usage_context", fake_get_local_usage_context)
-    monkeypatch.setattr(
-        "api.services.dashboard_state.get_settings",
-        lambda: SimpleNamespace(
-            strava_oauth_client_id="client-id",
-            strava_oauth_client_secret="client-secret",
-            whoop_oauth_client_id="client-id",
-            whoop_oauth_client_secret="client-secret",
-        ),
-    )
-
     strava = SimpleNamespace(
         encrypted_access_token=b"access-token",
         encrypted_refresh_token=b"refresh-token",
@@ -496,11 +483,11 @@ async def test_build_dashboard_state_surfaces_provider_attention_before_daily_sy
 
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
-    assert state["daily_sync"]["visible"] is True
-    assert state["daily_sync"]["can_run"] is True
-    assert state["daily_sync"]["attention_message"] == "WHOOP connection expired and cannot refresh. Reconnect WHOOP."
-    assert state["weekly_recap"]["attention_message"] == "WHOOP connection expired and cannot refresh. Reconnect WHOOP."
-    assert "WHOOP connection expired and cannot refresh. Reconnect WHOOP." in state["today_mission"]["warnings"]
+    assert state["daily_sync"]["visible"] is False
+    assert state["daily_sync"]["can_run"] is False
+    assert state["daily_sync"]["attention_message"] == "Daily Sync is not included in the provider-free v2.2.0 release."
+    assert state["weekly_recap"]["attention_message"] == "Weekly Recap is not included in the provider-free v2.2.0 release."
+    assert all("WHOOP" not in warning for warning in state["today_mission"]["warnings"])
     assert "Fill key profile fields to improve intensity and constraint handling." in state["today_mission"]["warnings"]
     assert state["pending_proposal_banner"] is None
 
@@ -561,16 +548,6 @@ async def test_build_dashboard_state_converts_stale_pending_daily_sync_to_failed
         fake_evaluate_weekly_recap_availability,
     )
     monkeypatch.setattr("api.services.dashboard_state.get_local_usage_context", fake_get_local_usage_context)
-    monkeypatch.setattr(
-        "api.services.dashboard_state.get_settings",
-        lambda: SimpleNamespace(
-            strava_oauth_client_id="client-id",
-            strava_oauth_client_secret="client-secret",
-            whoop_oauth_client_id="client-id",
-            whoop_oauth_client_secret="client-secret",
-        ),
-    )
-
     daily_run = SimpleNamespace(
         id=uuid.uuid4(),
         status="pending",
@@ -599,9 +576,9 @@ async def test_build_dashboard_state_converts_stale_pending_daily_sync_to_failed
 
     assert fake_db.commits == 1
     assert daily_run.status == "failed"
-    assert state["daily_sync"]["status"] == "failed"
-    assert state["daily_sync"]["error_message"] == "Daily sync did not finish. Please retry."
-    assert state["daily_sync"]["can_run"] is True
+    assert state["daily_sync"]["status"] == "idle"
+    assert state["daily_sync"]["error_message"] is None
+    assert state["daily_sync"]["can_run"] is False
 
 
 @pytest.mark.asyncio
@@ -681,11 +658,11 @@ async def test_build_dashboard_state_blocks_weekly_recap_when_provider_was_disco
 
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
-    assert state["weekly_recap"]["visible"] is True
-    assert state["weekly_recap"]["status"] == "ready"
+    assert state["weekly_recap"]["visible"] is False
+    assert state["weekly_recap"]["status"] == "hidden"
     assert state["weekly_recap"]["can_run"] is False
-    assert state["weekly_recap"]["attention_message"] == "WHOOP was disconnected. Reconnect it in Settings before starting a run."
-    assert "WHOOP was disconnected. Reconnect it in Settings before starting a run." in state["today_mission"]["warnings"]
+    assert state["weekly_recap"]["attention_message"] == "Weekly Recap is not included in the provider-free v2.2.0 release."
+    assert all("WHOOP" not in warning for warning in state["today_mission"]["warnings"])
 
 
 @pytest.mark.asyncio
@@ -994,11 +971,8 @@ async def test_build_dashboard_state_reuses_latest_completed_daily_kpis_before_n
 
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
-    assert state["status_surface"]["source"] == "daily_update"
-    assert state["status_surface"]["label"] == "Last sync (yesterday)"
-    assert state["status_surface"]["target_date"] == "2026-03-05"
-    assert state["status_surface"]["updated_at"] == "2026-03-05T16:10:00+00:00"
-    assert state["status_surface"]["kpis"][0]["kpi_id"] == "daily-sleep"
+    assert state["status_surface"]["source"] == "analysis"
+    assert state["status_surface"]["kpis"][0]["kpi_id"] == "baseline-sleep"
     assert state["coach_surface"]["source"] == "analysis"
     assert state["daily_sync"]["status"] == "idle"
 
@@ -1093,9 +1067,8 @@ async def test_build_dashboard_state_labels_older_carried_forward_daily_kpis_wit
 
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
-    assert state["status_surface"]["source"] == "daily_update"
-    assert state["status_surface"]["label"] == "Last sync (Mar 5)"
-    assert state["status_surface"]["target_date"] == "2026-03-05"
+    assert state["status_surface"]["source"] == "none"
+    assert state["status_surface"]["kpis"] == []
 
 
 @pytest.mark.asyncio
@@ -1229,11 +1202,10 @@ async def test_build_dashboard_state_prefers_newer_weekly_recap_over_earlier_dai
 
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
-    assert state["daily_sync"]["status"] == "completed"
-    assert state["weekly_recap"]["status"] == "completed_this_window"
-    assert state["coach_surface"]["source"] == "weekly_recap"
-    assert state["coach_surface"]["primary_text"] == "High compliance, but load rose faster than ideal"
-    assert state["coach_surface"]["secondary_text"] == "Absorb the work before pushing again"
+    assert state["daily_sync"]["status"] == "idle"
+    assert state["weekly_recap"]["status"] == "hidden"
+    assert state["coach_surface"]["source"] == "analysis"
+    assert state["coach_surface"]["primary_text"] == "Keep the overall build controlled."
 
 
 @pytest.mark.asyncio
@@ -1401,13 +1373,9 @@ async def test_build_dashboard_state_keeps_recap_outcome_visible_after_follow_up
 
     state = await build_dashboard_state(cast("Any", fake_db), user_id=user_id)
 
-    assert state["weekly_recap"]["visible"] is True
-    assert state["weekly_recap"]["status"] == "completed_this_window"
+    assert state["weekly_recap"]["visible"] is False
+    assert state["weekly_recap"]["status"] == "hidden"
     assert state["weekly_recap"]["pending_action"] == "none"
-    assert state["weekly_recap"]["follow_up_question"] == "Did the climbs feel smooth?"
-    assert state["weekly_recap"]["summary_preview"] == "High compliance, but load rose fast"
-    assert state["coach_surface"]["source"] == "weekly_recap"
-    assert state["coach_surface"]["scope"] == "this_week"
-    assert state["coach_surface"]["primary_label"] == "This Week's Priority"
-    assert state["coach_surface"]["primary_text"] == "High compliance, but load rose fast"
-    assert state["coach_surface"]["secondary_text"] == "Next week: stay disciplined on the long run"
+    assert state["weekly_recap"]["follow_up_question"] is None
+    assert state["weekly_recap"]["summary_preview"] is None
+    assert state["coach_surface"]["source"] == "none"

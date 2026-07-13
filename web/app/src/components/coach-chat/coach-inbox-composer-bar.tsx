@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import type { CoachQuota } from "@/lib/types/quota";
 
 import {
@@ -41,23 +39,16 @@ export default function CoachInboxComposerBar({
   coachGateTarget,
   isConversationView,
   selectedThreadStatus,
-  threadCanTriggerRecap,
-  trainingProviderMessage,
   busyAction,
   composerDisabled,
   listComposerDisabled,
   input,
   onInputChange,
   onSendMessage,
-  onTriggerRecap,
   onQuickPromptSelect,
 }: CoachInboxComposerBarProps) {
   const composerLocked = isConversationView ? composerDisabled : listComposerDisabled;
-  const coachGateHref = "/app/settings";
-  const coachGateLabel = "Open integration settings";
-  const blockedSendLabel = coachGateTarget === "settings" ? "Connect Data Source" : "Try Tomorrow";
-  const gateHref = "/app/settings";
-  const gateLabel = "Open integration settings";
+  const blockedSendLabel = coachGateTarget === "settings" ? "Coach unavailable" : "Try Tomorrow";
 
   return (
     <footer className="border-t border-white/10 bg-white/[0.03] px-4 py-3 backdrop-blur">
@@ -75,25 +66,6 @@ export default function CoachInboxComposerBar({
       {coachGateMessage ? (
         <div className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/12 px-3 py-2 text-xs text-amber-100">
           <div>{coachGateMessage}</div>
-          <div className="mt-1 text-amber-50/90">
-            Connect Strava or WHOOP in Settings before starting coach chat.
-          </div>
-          <Link className="mt-2 inline-flex font-semibold text-amber-100 hover:text-white" href={coachGateHref}>
-            {coachGateLabel}
-          </Link>
-        </div>
-      ) : null}
-      {trainingProviderMessage && trainingProviderMessage !== coachGateMessage ? (
-        <div className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/12 px-3 py-2 text-xs text-amber-100">
-          <div>{trainingProviderMessage}</div>
-          <div className="mt-1 text-amber-50/90">
-            {threadCanTriggerRecap
-              ? "Coach chat still works, and Weekly Recap can still run from your other active source."
-              : "Coach chat still works, but Weekly Recap needs a connected training source."}
-          </div>
-          <Link className="mt-2 inline-flex font-semibold text-amber-100 hover:text-white" href={gateHref}>
-            {gateLabel}
-          </Link>
         </div>
       ) : null}
 
@@ -121,15 +93,6 @@ export default function CoachInboxComposerBar({
           <div className="flex items-center justify-between gap-2 pt-1">
             <div className="text-[10px] text-[var(--text-muted)]">Enter sends · Shift+Enter new line</div>
             <div className="flex gap-2">
-              <button
-                className="rounded-2xl border border-sky-400/25 bg-sky-400/12 px-4 py-2 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/18 disabled:opacity-50"
-                disabled={composerDisabled || !threadCanTriggerRecap}
-                title="Generate weekly recap"
-                type="button"
-                onClick={onTriggerRecap}
-              >
-                {busyAction === "recap" ? "Preparing recap..." : "Weekly recap"}
-              </button>
               <button
                 className="rounded-2xl bg-[linear-gradient(135deg,rgba(56,189,248,0.92),rgba(16,185,129,0.88))] px-4 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
                 disabled={composerDisabled || !canSendMessage || !input.trim()}

@@ -59,7 +59,10 @@ def test_integrations_status_marks_absent_providers_disconnected():
     assert status.strava.ever_connected is False
     assert status.whoop.ever_connected is False
     assert has_operational_training_provider(status) is False
-    assert training_provider_requirement_message(status) == "No training data source connected. Connect a supported training source first."
+    assert training_provider_requirement_message(status) == (
+        "No optional training source connected. Plan generation and Coach chat still work; "
+        "Daily Sync and Weekly Recap need activity or recovery data."
+    )
 
 
 @pytest.mark.unit
@@ -205,7 +208,10 @@ def test_integrations_status_marks_disabled_provider_without_blocking_manual_mod
     assert status.strava.connection_state == "disabled"
     assert status.strava.oauth_enabled is False
     assert has_operational_training_provider(status) is False
-    assert training_provider_requirement_message(status) == "No training data source connected. Connect a supported training source first."
+    assert training_provider_requirement_message(status) == (
+        "No optional training source connected. Plan generation and Coach chat still work; "
+        "Daily Sync and Weekly Recap need activity or recovery data."
+    )
 
 
 @pytest.mark.unit

@@ -43,6 +43,11 @@ def _check_release_consistency() -> list[str]:
     if pyproject_version != release_version:
         errors.append(f"Release version mismatch: manifest={release_version}, pyproject.toml={pyproject_version}")
 
+    pixi_data = tomllib.loads((REPO_ROOT / "pixi.toml").read_text(encoding="utf-8"))
+    pixi_version = pixi_data.get("project", {}).get("version")
+    if pixi_version != release_version:
+        errors.append(f"Release version mismatch: manifest={release_version}, pixi.toml={pixi_version}")
+
     package_json_data = json.loads((REPO_ROOT / "web/app/package.json").read_text(encoding="utf-8"))
     web_version = package_json_data.get("version")
     if web_version != release_version:

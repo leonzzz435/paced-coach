@@ -525,10 +525,6 @@ async def _can_request_full_run(db: AsyncSession, *, user_id: uuid.UUID) -> bool
     return availability.allowed
 
 
-async def _ensure_connected_coach_chat_available(db: AsyncSession, *, user_id: uuid.UUID):
-    return None
-
-
 async def _projection_payload(
     db: AsyncSession,
     *,
@@ -925,7 +921,6 @@ async def _run_turn_action(
     status_emitter: StatusEmitter | None = None,
 ) -> tuple[dict, list]:
     if action == "text":
-        await _ensure_connected_coach_chat_available(db, user_id=user_id)
         return await _handle_text_turn(
             db,
             user_id=user_id,

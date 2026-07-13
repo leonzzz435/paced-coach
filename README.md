@@ -1,12 +1,14 @@
 # paced.coach
 
-Local-first AI endurance coaching app for self-coached athletes.
+Your season roadmap, next 28 days, and an AI coach that stays with the plan.
 
-paced.coach gives you a full web app, FastAPI backend, Celery worker, local Postgres/Redis stack, and LangGraph-based coaching workflows. It runs on your machine by default. There is no hosted auth, no hosted payments, no production deploy requirement, and no required training-provider connection.
+Describe your goals, training history, availability, and constraints. paced.coach turns that athlete-declared context into a personal season strategy and a day-by-day execution block, then carries the same context into coach chat.
 
-You bring one LLM key. Strava and WHOOP OAuth are optional when you want connected daily sync and weekly recaps.
+**No wearable required.** You bring one supported LLM key and the context only you know. Version 2.2.0 is deliberately provider-free: no activity-platform or recovery-device account is connected to the app.
 
-Not affiliated with Strava or WHOOP. Not medical advice.
+The complete app runs on your machine by default: Next.js frontend, FastAPI backend, Celery/LangGraph coaching workflows, and local Postgres/Redis. There is no hosted auth, hosted payment, or production deployment requirement.
+
+Not medical advice.
 
 ![paced.coach local-first AI endurance coach](docs/assets/readme/paced-coach-hero.png)
 
@@ -15,8 +17,7 @@ Not affiliated with Strava or WHOOP. Not medical advice.
 The screenshots below are generated from the public `/demo` route using sanitized fixture data. They do not read a local database or real athlete account.
 
 <p>
-  <img src="docs/assets/readme/paced-coach-dashboard.png" alt="paced.coach dashboard with daily focus, recovery gates, weekly recap, daily sync, and season progress" width="49%" />
-  <img src="docs/assets/readme/paced-coach-plan.png" alt="paced.coach generated training plan with season roadmap and 28-day calendar" width="49%" />
+  <img src="docs/assets/readme/paced-coach-plan.png" alt="paced.coach generated training plan with season roadmap and 28-day calendar" width="100%" />
 </p>
 
 ![paced.coach coach workspace preview](docs/assets/readme/paced-coach-coach.png)
@@ -25,11 +26,11 @@ Open the same preview locally at `http://localhost:3000/demo` after `make start`
 
 ## What You Get
 
-- A local web app for profile, race calendar, plan generation, active plan review, and coach conversations.
-- AI-generated season roadmap plus a 28-day execution block.
+- One continuous coaching flow: athlete profile and goals, season roadmap, 28-day execution block, then coach conversations against the actual plan.
+- A calendar-first view of every generated session, with the longer season strategy always in reach.
 - Versioned plan renderers for coach report, season strategy, and calendar-style weekly plan views.
-- Optional Strava and WHOOP OAuth for connected daily sync and weekly recap.
-- Explicit confidence boundaries when only declared profile/goals are available.
+- A provider-free coaching model that reasons from what the athlete explicitly declares and what the app has generated.
+- Explicit confidence boundaries: missing activity, load, sleep, HRV, recovery, and readiness evidence is never invented.
 - Local-first data posture: your app database is your local Postgres volume.
 
 ## Requirements
@@ -50,7 +51,6 @@ cp web/app/.env.example web/app/.env.local
 
 # Edit .env and set OPENAI_API_KEY.
 # Alternative: set AI_MODE=anthropic and ANTHROPIC_API_KEY instead.
-# Optional for Strava/WHOOP later: generate FERNET_KEY and provider OAuth values.
 
 make setup
 make start
@@ -74,7 +74,7 @@ Open:
 5. Read the active plan at `/app/plan`.
 6. Ask questions in `/app/coach`.
 
-Strava and WHOOP are not required for this path. Without connected data, the coach must not claim recent load, compliance, HRV, sleep, recovery, or readiness trends.
+No wearable is required for this path. Your supported LLM key plus your declared profile, goals, availability, constraints, and race calendar form the coaching baseline. The coach must not claim recent load, compliance, HRV, sleep, recovery, or readiness trends unless you explicitly provide that information.
 
 ## Environment
 
@@ -99,31 +99,7 @@ ANTHROPIC_API_KEY=...
 AI_MODE=anthropic
 ```
 
-Optional connected-mode values:
-
-```bash
-FERNET_KEY=...
-STRAVA_OAUTH_ENABLED=true
-STRAVA_OAUTH_CLIENT_ID=...
-STRAVA_OAUTH_CLIENT_SECRET=...
-STRAVA_OAUTH_REDIRECT_URI=http://localhost:3000/app/api/oauth/strava/callback
-
-WHOOP_OAUTH_ENABLED=true
-WHOOP_OAUTH_CLIENT_ID=...
-WHOOP_OAUTH_CLIENT_SECRET=...
-WHOOP_OAUTH_REDIRECT_URI=http://localhost:3000/app/api/oauth/whoop/callback
-```
-
-Generate `FERNET_KEY` with:
-
-```bash
-pixi run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Detailed connector setup:
-
-- [Strava local OAuth](docs/local-first/connect-strava.md)
-- [WHOOP local OAuth](docs/local-first/connect-whoop.md)
+External training-data connectors are intentionally not shipped in v2.2.0. The full plan and coach flow works from declared context alone.
 
 ## Local Data
 

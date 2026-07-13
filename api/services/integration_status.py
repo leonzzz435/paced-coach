@@ -624,7 +624,10 @@ def training_provider_requirement_message(status: IntegrationsStatus) -> str:
         verb = "was" if len(disconnected_names) == 1 else "were"
         noun = "it" if len(disconnected_names) == 1 else "a training source"
         return f"{subject} {verb} disconnected. Reconnect {noun} in Settings before starting a run."
-    return "No training data source connected. Connect a supported training source first."
+    return (
+        "No optional training source connected. Plan generation and Coach chat still work; "
+        "Daily Sync and Weekly Recap need activity or recovery data."
+    )
 
 
 def training_provider_block_message(status: IntegrationsStatus) -> str:

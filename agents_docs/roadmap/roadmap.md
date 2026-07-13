@@ -6,7 +6,7 @@ This doc changes slowly. It describes product direction for the local-first open
 
 1. **Plan-first coaching loop**: season roadmap, living 28-day block, coach proposals, daily update, weekly recap.
 2. **Local-first ownership**: one local owner by default, no account service required for the first useful run.
-3. **Provider-optional context**: manual profile and competitions work alone; Strava and WHOOP add richer context when configured.
+3. **Provider-free context**: profile, competitions, constraints, plan history, and coach dialogue form the complete coaching context.
 4. **Confidence-aware AI coaching**: the coach should state limits clearly when data is sparse or disconnected.
 5. **Agent-native architecture**: agents receive rich context and make coaching judgments; deterministic code handles infrastructure, validation, and persistence.
 6. **Mobile-ready web app**: responsive PWA first, native wrapper only if real usage justifies it.
@@ -48,7 +48,7 @@ Avoid positioning the product as:
 
 ### Phase 3 — Connected Coach Context
 
-- Make Strava activity history and WHOOP readiness inputs feed provider-neutral context.
+- Reconsider external training-data connectors only after a compatible provider contract or written permission is documented.
 - Keep provider data read-only in v1.
 - Preserve source snapshots enough to debug connector parsing.
 - Make provider failures non-blocking for manual planning.

@@ -23,11 +23,10 @@ export default function TermsPage() {
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
         <h2 className="text-lg font-medium text-zinc-900">2. Service Description</h2>
         <p>
-          paced.coach provides software for endurance training context management, plan generation, coaching chat, and
-          optional connected-data workflows.
+          paced.coach provides software for endurance training context management, plan generation, and coaching chat.
         </p>
         <p>The app does not provide medical, therapeutic, or diagnostic advice.</p>
-        <p>Outputs depend on the data you provide, the integrations you configure, and third-party provider availability.</p>
+        <p>Outputs depend on the context you declare and the language-model service you configure.</p>
       </section>
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
@@ -79,7 +78,7 @@ export default function TermsPage() {
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
         <h2 className="text-lg font-medium text-zinc-900">8. Third-Party Providers and Changes</h2>
-        <p>The app may depend on configured LLM providers, Strava, WHOOP, LangSmith, and local infrastructure.</p>
+        <p>The app may depend on the configured LLM provider, optional LangSmith tracing, and local infrastructure.</p>
         <p>
           Outages, rate limits, API changes, or account restrictions at those providers may affect data freshness or
           feature availability.
@@ -91,9 +90,9 @@ export default function TermsPage() {
         <h2 className="text-lg font-medium text-zinc-900">9. Local Data Reset</h2>
         <p>
           Local data reset is available from Settings only after the operator enables the explicit reset flags. The
-          reset removes user-scoped app data and connector credentials from the local application database.
+          reset removes user-scoped app data and any legacy connector records from the local application database.
         </p>
-        <p>Disconnect Strava or WHOOP to stop future local imports from those providers.</p>
+        <p>Version 2.2.0 does not perform external training-data imports.</p>
       </section>
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">

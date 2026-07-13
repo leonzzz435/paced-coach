@@ -273,17 +273,8 @@ def test_worker_serializes_plan_blocks_into_job_result():
         return _fake_workflow_result()
 
     with patch("worker.tasks.get_sync_session", return_value=fake_session):
-        with patch(
-            "worker.tasks._extract_strava_snapshot",
-            return_value={
-                "athlete_profile": {},
-                "recent_activities": [],
-                "training_load_history": [],
-                "activity_summary": {"activity_count": 0},
-            },
-        ):
-            with patch("worker.tasks.asyncio.run", side_effect=fake_asyncio_run):
-                run_analysis_task(str(job_id))
+        with patch("worker.tasks.asyncio.run", side_effect=fake_asyncio_run):
+            run_analysis_task(str(job_id))
 
     assert fake_job.status == JobStatus.COMPLETED.value
     assert isinstance(fake_job.result, dict)
@@ -303,7 +294,7 @@ def test_worker_serializes_plan_blocks_into_job_result():
     assert "metrics_outputs" in fake_active_analysis.expert_context
 
 
-def test_worker_passes_transition_context_with_active_weekly_plan_to_workflow():
+def test_worker_passes_provider_free_transition_context_with_active_weekly_plan_to_workflow():
     os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
     os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
     job_id = uuid.uuid4()
@@ -326,40 +317,14 @@ def test_worker_passes_transition_context_with_active_weekly_plan_to_workflow():
 
     with patch("worker.tasks.get_sync_session", return_value=fake_session):
         with patch(
-            "worker.tasks._extract_strava_snapshot",
-            return_value={
-                "athlete_profile": {},
-                "recent_activities": [
-                    {
-                        "name": "Morning Easy",
-                        "sport_type": "Run",
-                        "start_date": "2026-05-11T08:00:00Z",
-                        "distance": 5000,
-                        "moving_time": 1800,
-                        "average_heartrate": 132,
-                    }
-                ],
-                "training_load_history": [
-                    {
-                        "date": "2026-05-11",
-                        "activity_count": 1,
-                        "load_value": 8,
-                        "load_type": "strava_relative_effort",
-                    }
-                ],
-                "activity_summary": {"activity_count": 1},
-            },
+            "worker.tasks.run_complete_analysis_and_planning",
+            side_effect=fake_run_complete_analysis_and_planning,
         ):
-            with patch(
-                "worker.tasks.run_complete_analysis_and_planning",
-                side_effect=fake_run_complete_analysis_and_planning,
-            ):
-                run_analysis_task(str(job_id))
+            run_analysis_task(str(job_id))
 
     assert fake_job.status == JobStatus.COMPLETED.value
     assert "transition_context" in captured_kwargs
-    assert "Recent Executed Sessions" in captured_kwargs["transition_context"]
-    assert "Morning Easy" in captured_kwargs["transition_context"]
+    assert "No recent executed sessions in the extracted window" in captured_kwargs["transition_context"]
     assert "Existing Active Weekly Plan" in captured_kwargs["transition_context"]
     assert "Easy aerobic run" in captured_kwargs["transition_context"]
     assert "intensity=rest" in captured_kwargs["transition_context"]
@@ -385,22 +350,23 @@ def test_worker_marks_job_failed_on_soft_time_limit(monkeypatch):
         raise SoftTimeLimitExceeded()
 
     with patch("worker.tasks.get_sync_session", return_value=fake_session):
-        with patch(
-            "worker.tasks._extract_strava_snapshot",
-            return_value={
-                "athlete_profile": {},
-                "recent_activities": [],
-                "training_load_history": [],
-                "activity_summary": {"activity_count": 0},
-            },
-        ):
-            with patch("worker.tasks.asyncio.run", side_effect=fake_asyncio_run):
-                with pytest.raises(SoftTimeLimitExceeded):
-                    run_analysis_task(str(job_id))
+        with patch("worker.tasks.asyncio.run", side_effect=fake_asyncio_run):
+            with pytest.raises(SoftTimeLimitExceeded):
+                run_analysis_task(str(job_id))
 
     assert fake_job.status == JobStatus.FAILED.value
     assert fake_job.completed_at is not None
     assert fake_job.error_message == "Job timed out (soft time limit exceeded after 1770s)"
+
+
+def test_worker_formats_openai_insufficient_quota_as_actionable_error():
+    from worker.tasks import _format_analysis_task_error_message
+
+    error = RuntimeError("Required AI stage failed: OpenAI error code: insufficient_quota")
+
+    assert _format_analysis_task_error_message(error) == (
+        "OpenAI API quota exhausted. Add billing credit or configure another supported LLM provider, then retry."
+    )
 
 
 def test_worker_defers_terminal_failure_while_autoretry_attempts_remain():

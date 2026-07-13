@@ -23,7 +23,6 @@ Include:
 Never commit real credentials. This includes:
 
 - LLM API keys
-- Strava/WHOOP OAuth secrets
 - provider access or refresh tokens
 - database URLs with nonlocal credentials
 - Fernet keys
@@ -41,14 +40,21 @@ Local Postgres data can contain sensitive training and coaching history. Back up
 The local app can send data to:
 
 - the configured LLM provider during generation/coaching
-- Strava/WHOOP if OAuth is configured
 - LangSmith if `LANGSMITH_API_KEY` is set
 
 Leave optional integrations unset if you do not want those network paths.
 
 ## Public Release Gate
 
-Before publishing a public release, run a release audit covering:
+Before publishing a public release, run the non-destructive audit from a clean release-candidate commit:
+
+```bash
+bash scripts/release_audit.sh
+```
+
+The audit uses pinned Gitleaks `v8.30.1` scans against isolated copies of tracked files and publishable Git history. It reports ignored local secret/data paths by name only and never scans their contents. Redacted reports and temporary scan repositories stay under ignored `.tmp/release-audit/`.
+
+The gate covers:
 
 - working tree cleanliness
 - ignored local secret files
@@ -57,3 +63,5 @@ Before publishing a public release, run a release audit covering:
 - workflow secret references
 - screenshots and fixtures
 - hosted ops leftovers
+
+If the audit reports a possible secret, rotate the credential first. Do not rewrite history, delete local artifacts, or remove Docker volumes without explicit maintainer approval and a backup/data-preservation check.

@@ -19,11 +19,7 @@ from api.models.competition import Competition
 from api.models.user import User
 from api.services.coach_memory_metadata import derive_memory_freshness, extract_transient_state_notes
 from api.services.evidence_profile import build_evidence_profile, build_evidence_sources
-from api.services.ongoing_providers import (
-    OngoingTrainingProvider,
-    build_ongoing_strava_provider,
-    build_ongoing_whoop_provider,
-)
+from api.services.ongoing_providers import OngoingTrainingProvider
 
 
 def _safe_float(value: object) -> float | None:
@@ -123,17 +119,8 @@ class OngoingToolRegistry:
 
     def _provider_observability(self) -> dict:
         snapshot: dict[str, dict[str, object]] = dict(self._provider_runtime_status)
-        # Include known providers even when disconnected so the agent can reason about gaps.
-        for name in ("strava", "whoop"):
-            snapshot.setdefault(
-                name,
-                {
-                    "kind": None,
-                    "available": False,
-                    "last_error": None,
-                    "status_code": None,
-                },
-            )
+        if not snapshot:
+            return {"training_providers": {}}
         evidence_sources = build_evidence_sources(provider_status=snapshot)
         for name, evidence_source in evidence_sources.items():
             entry = snapshot.setdefault(
@@ -1006,7 +993,7 @@ class OngoingToolRegistry:
             sport_filters: list[str] | None = None,
             detail_level: Literal["summary", "full"] = "summary",
         ) -> list[dict]:
-            """Get activities in a date range from all connected providers (Strava and/or WHOOP).
+            """Get activities in a date range from available local training sources.
 
             date_from/date_to must be YYYY-MM-DD (ISO 8601). detail_level 'summary' returns compact cards;
             'full' returns provider-native payloads. activity_id values are composite IDs: '{source}:{id}'.
@@ -1025,7 +1012,7 @@ class OngoingToolRegistry:
         async def get_activity_detail_tool(activity_id: str) -> dict | None:
             """Get one full activity by composite activity_id (from get_recent_activities).
 
-            activity_id is '{source}:{id}' where source is 'strava' or 'whoop'.
+            activity_id uses the '{source}:{id}' form returned by recent activities.
             Returns provider-native data for that activity.
             """
             return await self.get_activity_detail(activity_id=activity_id)
@@ -1076,17 +1063,9 @@ async def build_ongoing_tool_registry(
     require_training_provider: bool = True,
 ):
     providers: dict[str, OngoingTrainingProvider] = {}
-    for name, builder in (
-        ("strava", build_ongoing_strava_provider),
-        ("whoop", build_ongoing_whoop_provider),
-    ):
-        try:
-            providers[name] = await builder(db, user_id=user_id)
-        except HTTPException:
-            continue
 
     if require_training_provider and not providers:
-        raise HTTPException(status_code=404, detail="No training data source connected")
+        raise HTTPException(status_code=404, detail="This release does not include external training data sources")
 
     registry = OngoingToolRegistry(db=db, user_id=user_id, providers=providers)
     try:

@@ -13,11 +13,13 @@ export const viewport: Viewport = {
 
 export const metadata = {
   title: "paced.coach",
-  description: "Connected endurance coaching for self-coached athletes.",
+  description:
+    "Turn your goals, availability, and constraints into a season roadmap, 28-day plan, and coach chat with your own LLM key. No wearable required.",
   metadataBase: new URL("https://paced.coach"),
   openGraph: {
     title: "paced.coach",
-    description: "Connected endurance coaching for self-coached athletes.",
+    description:
+      "Turn your goals, availability, and constraints into a season roadmap, 28-day plan, and coach chat with your own LLM key. No wearable required.",
     url: "https://paced.coach",
     siteName: "paced.coach",
     images: [{ url: "/og.svg", width: 1200, height: 630, alt: "paced.coach" }],
@@ -27,7 +29,8 @@ export const metadata = {
   twitter: {
     card: "summary_large_image",
     title: "paced.coach",
-    description: "Connected endurance coaching for self-coached athletes.",
+    description:
+      "Turn your goals, availability, and constraints into a season roadmap, 28-day plan, and coach chat with your own LLM key. No wearable required.",
     images: ["/og.svg"],
   },
   icons: {

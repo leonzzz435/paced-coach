@@ -92,14 +92,13 @@ def test_create_langchain_tools_exposes_context_retrieval_tools():
     assert "get_athlete_profile" in tool_names
 
 
-def test_get_observability_snapshot_includes_provider_availability():
+def test_get_observability_snapshot_is_provider_free():
     registry = OngoingToolRegistry(db=AsyncMock(), user_id=uuid.uuid4(), providers={})
 
     snapshot = registry.get_observability_snapshot()
 
     providers = snapshot["provider"]["training_providers"]
-    assert providers["strava"]["available"] is False
-    assert providers["whoop"]["available"] is False
+    assert providers == {}
     assert snapshot["evidence_profile"]["connected_mode"] == "none"
     assert snapshot["evidence_profile"]["claims_policy"]["can_make_readiness_claims"] is False
 

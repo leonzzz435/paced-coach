@@ -18,6 +18,7 @@ from .node_base import (
     log_node_completion,
 )
 from .prompt_components import (
+    PROVIDER_OPTIONAL_COACHING_POLICY,
     get_hitl_clamp,
     get_hitl_instructions,
     get_plotting_instructions,
@@ -158,6 +159,7 @@ async def metrics_expert_node(state: TrainingAnalysisState) -> dict[str, list | 
     system_prompt = (
         get_workflow_context("metrics")
         + METRICS_SYSTEM_PROMPT_BASE
+        + PROVIDER_OPTIONAL_COACHING_POLICY
         + (get_plotting_instructions("metrics") if plotting_enabled else "")
         + (get_hitl_instructions("metrics") if hitl_enabled else "")
         + (get_hitl_clamp(2) if hitl_enabled else "")

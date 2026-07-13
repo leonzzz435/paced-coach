@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -7,7 +8,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 
 from api.models.ai_run_cost import AiRunCost
 from api.models.coach_turn_run import CoachTurnRun
@@ -148,43 +148,13 @@ async def test_handle_text_turn_records_turn_run_and_provenance(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_turn_action_blocks_text_when_connected_chat_gate_fails(monkeypatch):
-    ensure_chat_gate = AsyncMock(
-        side_effect=HTTPException(status_code=400, detail="Coach chat requires connected setup.")
-    )
-    handle_text_turn = AsyncMock()
-
-    monkeypatch.setattr(coach_turn, "_ensure_connected_coach_chat_available", ensure_chat_gate)
-    monkeypatch.setattr(coach_turn, "_handle_text_turn", handle_text_turn)
-
-    with pytest.raises(HTTPException) as exc:
-        await coach_turn._run_turn_action(
-            cast("Any", object()),
-            user_id=uuid.uuid4(),
-            thread=cast("Any", SimpleNamespace(id=uuid.uuid4())),
-            action="text",
-            message="How should I adjust this week?",
-            proposal_id=None,
-            reason=None,
-            quota_source_id="quota-source",
-        )
-
-    assert exc.value.status_code == 400
-    assert exc.value.detail == "Coach chat requires connected setup."
-    ensure_chat_gate.assert_awaited_once()
-    handle_text_turn.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_run_turn_action_routes_text_to_handler_after_connected_chat_gate(monkeypatch):
+async def test_run_turn_action_routes_text_without_a_connected_provider_gate(monkeypatch):
     expected_payload = {"kind": "message", "assistant_message": "Keep Tuesday easy."}
     expected_events = [SimpleNamespace(id=uuid.uuid4())]
-    ensure_chat_gate = AsyncMock()
     handle_text_turn = AsyncMock(return_value=(expected_payload, expected_events))
     thread = SimpleNamespace(id=uuid.uuid4())
     user_id = uuid.uuid4()
 
-    monkeypatch.setattr(coach_turn, "_ensure_connected_coach_chat_available", ensure_chat_gate)
     monkeypatch.setattr(coach_turn, "_handle_text_turn", handle_text_turn)
 
     payload, created_events = await coach_turn._run_turn_action(
@@ -200,8 +170,8 @@ async def test_run_turn_action_routes_text_to_handler_after_connected_chat_gate(
 
     assert payload == expected_payload
     assert created_events == expected_events
-    ensure_chat_gate.assert_awaited_once()
     handle_text_turn.assert_awaited_once()
+    assert "_ensure_connected_coach_chat_available" not in inspect.getsource(coach_turn._run_turn_action)
 
 
 @pytest.mark.asyncio

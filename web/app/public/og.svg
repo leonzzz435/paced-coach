@@ -11,17 +11,18 @@
 
   <g fill="#fff" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">
     <text x="96" y="170" font-size="40" opacity="0.9">paced.coach</text>
-    <text x="96" y="260" font-size="78" font-weight="700">Stop rewriting</text>
-    <text x="96" y="332" font-size="78" font-weight="700">your plan.</text>
-    <text x="96" y="408" font-size="38" opacity="0.9">Season roadmap, 28-day plan, daily coaching.</text>
+    <text x="96" y="250" font-size="72" font-weight="700">A complete AI coach.</text>
+    <text x="96" y="328" font-size="72" font-weight="700">No wearable required.</text>
+    <text x="96" y="402" font-size="34" opacity="0.9">Your context → season roadmap → 28-day plan → coach chat</text>
+    <text x="96" y="448" font-size="24" opacity="0.65">Runs locally with your own LLM key.</text>
 
-    <g transform="translate(96 470)" opacity="0.9">
-      <rect x="0" y="0" width="430" height="56" rx="18" fill="#fff" opacity="0.08" />
-      <text x="22" y="38" font-size="28">For self-coached endurance athletes</text>
+    <g transform="translate(96 500)" opacity="0.9">
+      <rect x="0" y="0" width="510" height="56" rx="18" fill="#fff" opacity="0.08" />
+      <text x="22" y="38" font-size="27">For self-coached endurance athletes</text>
     </g>
   </g>
 
-  <g transform="translate(900 120)">
+  <g transform="translate(1010 90) scale(0.5)">
     <rect x="0" y="0" width="220" height="220" rx="64" fill="#fff" opacity="0.1" />
     <path
       d="M60 150c32-72 68-72 100 0"

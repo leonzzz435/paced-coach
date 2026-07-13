@@ -1,3 +1,4 @@
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -11,11 +12,13 @@ from services.ai.utils.retry_handler import AI_ANALYSIS_CONFIG, retry_with_backo
 
 from .node_base import create_cost_entry, execute_node_with_error_handling, log_node_completion
 from .plan_formatter_node import _DESIGN_SYSTEM_BASE
+from .prompt_components import PROVIDER_OPTIONAL_COACHING_POLICY
 
 logger = logging.getLogger(__name__)
 
 ANALYSIS_FORMATTER_SYSTEM_PROMPT = (
     _DESIGN_SYSTEM_BASE
+    + PROVIDER_OPTIONAL_COACHING_POLICY
     + """
 
 ## Analysis Report — Specific Rules
@@ -114,6 +117,11 @@ ANALYSIS_FORMATTER_USER_PROMPT = """Convert this performance report into a `UiAn
 {synthesis_result}
 ```
 
+## Training Evidence
+```json
+{training_evidence}
+```
+
 ## Priority 1 — Surface fields (what the athlete reads)
 - `headline_brief`: 2-3 sentence coaching synthesis. This is the FIRST thing they read.
   Answer: "what matters most right now?" Direct coaching voice.
@@ -155,6 +163,7 @@ async def analysis_formatter_node(state: TrainingAnalysisState) -> dict:
                     "role": "user",
                     "content": ANALYSIS_FORMATTER_USER_PROMPT.format(
                         synthesis_result=synthesis_result,
+                        training_evidence=json.dumps(state.get("training_data", {}), indent=2),
                     ),
                 },
             ]

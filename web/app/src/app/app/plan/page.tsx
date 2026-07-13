@@ -54,7 +54,8 @@ export default async function PlanPage() {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
           <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">No active training plan yet</h1>
           <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[var(--text-secondary)]">
-            Generate a local Draft Mode plan from your saved profile, goals, race calendar, and one configured LLM key.
+            Generate a personal season roadmap and 28-day block from your saved profile, goals, race calendar, and one
+            configured LLM key. No wearable required.
           </p>
           <Link
             className="mt-5 inline-flex rounded-xl bg-[var(--accent-primary)] px-5 py-3 text-sm font-bold text-white transition hover:brightness-110"

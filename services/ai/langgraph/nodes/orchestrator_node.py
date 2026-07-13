@@ -78,6 +78,10 @@ class MasterOrchestrator:
         self.interaction_provider = interaction_provider or ConsoleInteractionProvider()
 
     def __call__(self, state: TrainingAnalysisState) -> Command:
+        errors = state.get("errors") or []
+        if errors:
+            raise RuntimeError(f"Required AI stage failed: {' | '.join(errors)}")
+
         stage = self._detect_stage(state)
         config = self.STAGES[stage]
 

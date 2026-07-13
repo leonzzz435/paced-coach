@@ -9,7 +9,6 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.config import get_settings
 from api.models.athlete_profile import AthleteProfile
 from api.models.coach_proposal import CoachProposal
 from api.models.coach_thread import CoachThread
@@ -18,12 +17,10 @@ from api.models.daily_update_run import DailyUpdateRun
 from api.models.weekly_recap_run import WeeklyRecapRun
 from api.services.active_plans import get_active_analysis, get_active_season_plan, get_active_weekly_plan
 from api.services.athlete_time import get_athlete_time_context
-from api.services.connected_coaching import resolve_connected_coaching_gate
 from api.services.daily_sync_sources import extract_daily_sync_sources
 from api.services.daily_update_runs import fail_stale_pending_daily_update_run
 from api.services.full_run_policy import evaluate_weekly_recap_availability
 from api.services.html_sanitizer import sanitize_html
-from api.services.integration_status import load_integrations_status, training_provider_notice_message
 from api.services.local_readiness import format_llm_provider_key_names, has_llm_provider_key
 from api.services.local_usage import get_local_usage_context, has_weekly_recap_feature_access
 from api.services.recap import (
@@ -100,19 +97,19 @@ def _build_first_run_state(
     if has_active_plan:
         next_step = "generated"
         title = "Training plan ready"
-        body = "Your current plan is available locally. Connected sources can improve daily sync and recaps, but they are not required to view or discuss the plan."
+        body = "Your current plan is available locally and ready for plan-aware coach conversations."
         primary_action = {"label": "Open training plan", "href": "/app/plan"}
         secondary_actions = [{"label": "Ask coach", "href": "/app/coach"}]
     elif not llm_ready:
         next_step = "llm_key"
         title = "Add one LLM key"
-        body = "Manual Mode can run without Strava or WHOOP, but local plan generation still needs one supported LLM provider key."
+        body = "Provider-free planning needs no external training-data account, but local generation still needs one supported LLM provider key."
         primary_action = None
         secondary_actions = []
     elif not profile_ready:
         next_step = "profile"
         title = "Complete your athlete profile"
-        body = "Manual Mode uses your declared physiology, sports, availability, and constraints as the baseline planning evidence."
+        body = "Your declared physiology, sports, availability, and constraints are the baseline planning evidence."
         primary_action = {"label": "Complete profile", "href": "/app/profile"}
         secondary_actions = []
     elif not goal_ready:
@@ -124,7 +121,7 @@ def _build_first_run_state(
     else:
         next_step = "generate"
         title = "Generate your first local plan"
-        body = "Ready for Draft Mode: the planner will use your saved profile, goal/race context, and any notes you add on the generation screen."
+        body = "No wearable required: the planner will use your saved profile, goal/race context, availability, constraints, and generation notes."
         primary_action = {"label": "Generate plan", "href": "/app/new"}
         secondary_actions = [
             {"label": "Review profile", "href": "/app/profile"},
@@ -148,15 +145,6 @@ def _build_first_run_state(
         "secondary_actions": secondary_actions,
         "blockers": blockers,
     }
-
-
-async def _load_dashboard_integrations_context(db: AsyncSession, *, user_id):
-    integrations_status = await load_integrations_status(
-        db,
-        user_id=user_id,
-        settings=get_settings(),
-    )
-    return integrations_status, training_provider_notice_message(integrations_status)
 
 
 def _resolve_daily_sync_status(
@@ -648,13 +636,6 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
     profile_payload = profile_row.scalar_one_or_none()
     has_competitions = bool(competitions_row.scalars().first())
     warnings = _dashboard_warnings(profile=profile_payload, has_competitions=has_competitions)
-    integrations_status, provider_notice = await _load_dashboard_integrations_context(
-        db,
-        user_id=user_id,
-    )
-    if provider_notice and provider_notice not in warnings:
-        warnings.append(provider_notice)
-
     weekly_plan_model = UiWeeklyPlan.model_validate(weekly_payload["weekly_plan"]) if weekly_payload else None
 
     daily_run = daily_run_row.scalar_one_or_none()
@@ -685,12 +666,7 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
         daily_run=daily_run,
         weekly_plan_available=weekly_plan_model is not None,
     )
-    daily_gate = resolve_connected_coaching_gate(
-        feature_enabled=True,
-        integrations_status=integrations_status,
-        locked_message="Daily coaching requires a connected training or recovery source.",
-    )
-    has_connected_source = str(daily_gate.evidence_profile.get("connected_mode") or "none") != "none"
+    has_connected_source = False
     has_active_plan = season_payload is not None or weekly_payload is not None
     first_run_state = _build_first_run_state(
         profile=profile_payload,
@@ -698,8 +674,8 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
         has_active_plan=has_active_plan,
         has_connected_source=has_connected_source,
     )
-    daily_attention_message = _resolve_daily_sync_attention(provider_notice=daily_gate.attention_message)
-    daily_can_run = weekly_plan_model is not None and daily_gate.allowed
+    daily_attention_message = "Daily Sync is not included in the provider-free v2.2.0 release."
+    daily_can_run = False
 
     verdict_preview = _extract_html_text(today_focus_blocks[0].content_html) if today_focus_blocks else None
     prefetched_recovery_readiness = (
@@ -709,13 +685,8 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
     )
     sources_used = extract_daily_sync_sources(prefetched_recovery_readiness)
 
-    recap_gate = resolve_connected_coaching_gate(
-        feature_enabled=True,
-        integrations_status=integrations_status,
-        locked_message="Weekly recap requires a connected training or recovery source.",
-    )
-    recap_attention_message = recap_gate.attention_message
-    recap_gate_target = recap_gate.gate_target
+    recap_attention_message = "Weekly Recap is not included in the provider-free v2.2.0 release."
+    recap_gate_target = None
     recap_state = {
         "visible": False,
         "allowed": recap_availability.allowed and recap_feature_enabled,
@@ -738,7 +709,7 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
                 "visible": True,
                 "allowed": True,
                 "status": "ready",
-                "can_run": recap_gate.allowed,
+                "can_run": False,
                 "attention_message": recap_attention_message,
                 "gate_target": recap_gate_target,
             }
@@ -771,6 +742,49 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
                 }
             )
 
+    recap_state.update(
+        {
+            "visible": False,
+            "allowed": False,
+            "status": "hidden",
+            "thread_id": None,
+            "proposal_id": None,
+            "follow_up_question": None,
+            "summary_preview": None,
+            "pending_action": "none",
+            "can_run": False,
+            "attention_message": "Weekly Recap is not included in the provider-free v2.2.0 release.",
+            "gate_target": None,
+        }
+    )
+    recap_coach_surface = None
+    recap_surface_updated_at = None
+
+    # v2.2.0 deliberately keeps legacy sync rows for data-preserving upgrades,
+    # but they are not part of the provider-free product or its coaching evidence.
+    status_surface = _build_status_surface(
+        analysis_payload=analysis_payload,
+        today_daily_run=None,
+        completed_daily_runs=[],
+        daily_payload={},
+        today_local_iso=today_local_iso,
+    )
+    today_focus_blocks = []
+    day_override = compose_day_override(
+        weekly_plan=weekly_plan_model,
+        target_date_iso=today_local_iso,
+        today_focus_blocks=today_focus_blocks,
+    )
+    daily_run = None
+    daily_coach_surface = None
+    daily_surface_updated_at = None
+    daily_thread_id = None
+    daily_status = "idle"
+    daily_visible = False
+    daily_error = None
+    verdict_preview = None
+    sources_used = []
+
     pending_proposal = pending_proposal_row.scalar_one_or_none()
     coach_surface = _select_coach_surface(
         daily_surface=daily_coach_surface,
@@ -800,15 +814,15 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
         "daily_sync": {
             "visible": daily_visible,
             "status": daily_status,
-            "run_id": str(daily_run.id) if daily_run is not None else None,
+            "run_id": None,
             "verdict_preview": verdict_preview,
             "sources_used": sources_used,
-            "proposal_id": str(daily_run.proposal_id) if daily_run and daily_run.proposal_id else None,
+            "proposal_id": None,
             "thread_id": daily_thread_id,
             "error_message": daily_error,
             "can_run": daily_can_run,
             "attention_message": daily_attention_message,
-            "gate_target": daily_gate.gate_target,
+            "gate_target": None,
         },
         "weekly_recap": recap_state,
         "pending_proposal_banner": (

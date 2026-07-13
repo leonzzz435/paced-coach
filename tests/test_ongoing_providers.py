@@ -102,22 +102,14 @@ async def test_strava_provider_paginates_recent_activities(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_build_ongoing_tool_registry_allows_empty_providers_when_optional(monkeypatch):
-    async def _raise_missing(*_args, **_kwargs):
-        raise HTTPException(status_code=404, detail="Not connected")
-
-    monkeypatch.setattr("api.services.ongoing_tools.build_ongoing_strava_provider", _raise_missing)
-    monkeypatch.setattr("api.services.ongoing_tools.build_ongoing_whoop_provider", _raise_missing)
-
+async def test_build_ongoing_tool_registry_is_provider_free():
     async with build_ongoing_tool_registry(
         cast("Any", object()),
         user_id="user-1",
         require_training_provider=False,
     ) as registry:
         snapshot = registry.get_observability_snapshot()
-        providers = snapshot["provider"]["training_providers"]
-        assert providers["strava"]["available"] is False
-        assert providers["whoop"]["available"] is False
+        assert snapshot["provider"]["training_providers"] == {}
 
     with pytest.raises(HTTPException) as exc:
         async with build_ongoing_tool_registry(

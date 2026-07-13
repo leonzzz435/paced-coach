@@ -85,6 +85,7 @@ Thumbs.db
 .coverage
 coverage.xml
 htmlcov/
+# Redacted scanner reports and isolated release-audit exports
 .tmp/
 
 # Logs and runtime artifacts

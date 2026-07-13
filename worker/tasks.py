@@ -8,19 +8,16 @@ from functools import lru_cache
 from typing import Any, cast
 
 import anthropic
-import httpx
 import openai
 from billiard.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 
-from api.config import get_settings
 from api.models.active_analysis import ActiveAnalysis
 from api.models.active_season_plan import ActiveSeasonPlan
 from api.models.active_weekly_plan import ActiveWeeklyPlan
 from api.models.coach_thread import CoachThread
 from api.models.coach_turn_request import CoachTurnRequest
-from api.models.credentials import StravaCredentials, WhoopCredentials
 from api.models.job import AnalysisJob, JobStatus
 from api.models.local_usage import LocalUsageEvent
 from api.services.ai_run_costs import (
@@ -30,7 +27,6 @@ from api.services.ai_run_costs import (
     trace_metadata_from_execution_metadata,
 )
 from api.services.coach_memory import maybe_update_thread_memory
-from api.services.crypto import get_crypto_service
 from api.services.evidence_profile import build_evidence_profile
 from api.services.local_usage.usage import FEATURE_FULL_RUN, FEATURE_INITIAL_DRAFT_PLAN, INITIAL_DRAFT_PLAN_SOURCE_TYPE
 from api.services.status_messages import (
@@ -45,12 +41,6 @@ from core.task_timeouts import get_analysis_task_soft_time_limit_seconds
 from services.ai.langgraph.nodes.training_data_projection import build_training_transition_context
 from services.ai.langgraph.schemas.ui_blocks import UiSeasonPlan, UiWeeklyPlan
 from services.ai.langgraph.workflows.planning_workflow import run_complete_analysis_and_planning
-from services.strava import StravaApiClient
-from services.strava.oauth import compute_expires_at as strava_compute_expires_at
-from services.strava.oauth import refresh_tokens as strava_refresh_tokens
-from services.whoop import WhoopApiClient
-from services.whoop.oauth import compute_expires_at as whoop_compute_expires_at
-from services.whoop.oauth import refresh_tokens as whoop_refresh_tokens
 from worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -108,132 +98,6 @@ def _sanitize_for_db(obj: object) -> object:
 def _as_json_dict(value: object) -> dict[str, Any]:
     """Narrow an unknown JSON-ish value to a dict for SQLAlchemy JSONB columns."""
     return cast("dict[str, Any]", value)
-
-
-def _safe_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-
-
-def _strava_activity_date_key(activity: dict) -> str | None:
-    raw_start = activity.get("start_date_local") or activity.get("start_date")
-    if not isinstance(raw_start, str) or not raw_start.strip():
-        return None
-    return raw_start[:10]
-
-
-def _build_strava_training_load_history(activities: list[dict]) -> list[dict]:
-    daily_totals: dict[str, dict[str, object]] = {}
-    for activity in activities:
-        date_key = _strava_activity_date_key(activity)
-        if not date_key:
-            continue
-        bucket = daily_totals.setdefault(
-            date_key,
-            {
-                "date": date_key,
-                "activity_count": 0,
-                "relative_effort_total": 0.0,
-                "suffer_score_total": 0.0,
-                "moving_time_minutes_total": 0.0,
-                "distance_m_total": 0.0,
-                "_has_relative_effort": False,
-                "_has_suffer_score": False,
-            },
-        )
-        bucket["activity_count"] = cast("int", bucket["activity_count"]) + 1
-
-        relative_effort = _safe_float(activity.get("relative_effort"))
-        if relative_effort is not None:
-            bucket["relative_effort_total"] = cast("float", bucket["relative_effort_total"]) + relative_effort
-            bucket["_has_relative_effort"] = True
-
-        suffer_score = _safe_float(activity.get("suffer_score"))
-        if suffer_score is not None:
-            bucket["suffer_score_total"] = cast("float", bucket["suffer_score_total"]) + suffer_score
-            bucket["_has_suffer_score"] = True
-
-        moving_time = _safe_float(activity.get("moving_time"))
-        if moving_time is not None:
-            bucket["moving_time_minutes_total"] = cast("float", bucket["moving_time_minutes_total"]) + (moving_time / 60.0)
-
-        distance_m = _safe_float(activity.get("distance"))
-        if distance_m is not None:
-            bucket["distance_m_total"] = cast("float", bucket["distance_m_total"]) + distance_m
-
-    payload: list[dict] = []
-    for date_key in sorted(daily_totals.keys()):
-        bucket = dict(daily_totals[date_key])
-        has_relative_effort = bool(bucket.pop("_has_relative_effort", False))
-        has_suffer_score = bool(bucket.pop("_has_suffer_score", False))
-        load_value = None
-        load_type = "strava_activity_count"
-        if has_relative_effort:
-            load_value = bucket.get("relative_effort_total")
-            load_type = "strava_relative_effort"
-        elif has_suffer_score:
-            load_value = bucket.get("suffer_score_total")
-            load_type = "strava_suffer_score"
-        bucket["load_type"] = load_type
-        bucket["load_value"] = load_value
-        payload.append(bucket)
-    return payload
-
-
-def _list_strava_activities_with_pagination(
-    *,
-    client: StravaApiClient,
-    after: int,
-    before: int,
-) -> list[dict]:
-    activities: list[dict] = []
-    page = 1
-    per_page = 100
-    while True:
-        batch = client.list_activities(page=page, per_page=per_page, after=after, before=before)
-        if not batch:
-            break
-        activities.extend(batch)
-        if len(batch) < per_page:
-            break
-        page += 1
-    return activities
-
-
-def _build_strava_activity_summary(activities: list[dict]) -> dict[str, Any]:
-    total_distance_m = 0.0
-    total_moving_time_seconds = 0.0
-    total_relative_effort = 0.0
-    total_suffer_score = 0.0
-    has_relative_effort = False
-    has_suffer_score = False
-    for activity in activities:
-        distance_m = _safe_float(activity.get("distance"))
-        if distance_m is not None:
-            total_distance_m += distance_m
-        moving_time = _safe_float(activity.get("moving_time"))
-        if moving_time is not None:
-            total_moving_time_seconds += moving_time
-        relative_effort = _safe_float(activity.get("relative_effort"))
-        if relative_effort is not None:
-            total_relative_effort += relative_effort
-            has_relative_effort = True
-        suffer_score = _safe_float(activity.get("suffer_score"))
-        if suffer_score is not None:
-            total_suffer_score += suffer_score
-            has_suffer_score = True
-
-    return {
-        "activity_count": len(activities),
-        "distance_km_total": round(total_distance_m / 1000.0, 2) if total_distance_m else 0.0,
-        "moving_time_minutes_total": round(total_moving_time_seconds / 60.0, 1) if total_moving_time_seconds else 0.0,
-        "relative_effort_total": total_relative_effort if has_relative_effort else None,
-        "suffer_score_total": total_suffer_score if has_suffer_score else None,
-    }
 
 
 _ATHLETE_PROFILE_CONTEXT_PROMPT = """You are provided an athlete profile snapshot (persisted per user).
@@ -300,7 +164,11 @@ def _format_analysis_task_error_message(exc: Exception) -> str:
         if soft_limit_seconds is not None:
             return f"Job timed out (soft time limit exceeded after {soft_limit_seconds}s)"
         return "Job timed out (worker soft time limit exceeded)"
-    return str(exc) or "Analysis task failed"
+    message = str(exc) or "Analysis task failed"
+    normalized_message = message.lower()
+    if "insufficient_quota" in normalized_message or "exceeded your current quota" in normalized_message:
+        return "OpenAI API quota exhausted. Add billing credit or configure another supported LLM provider, then retry."
+    return message
 
 
 def _get_database_url() -> str:
@@ -316,197 +184,6 @@ def _get_database_url() -> str:
 @lru_cache(maxsize=1)
 def _get_engine():
     return create_engine(_get_database_url())
-
-
-def _whoop_access_token(db: Session, *, user_id: uuid.UUID, force_refresh: bool = False) -> str:
-    creds = db.execute(
-        select(WhoopCredentials).where(WhoopCredentials.user_id == user_id).with_for_update()
-    ).scalar_one_or_none()
-    if creds is None:
-        raise ValueError("No Whoop credentials found for user")
-
-    crypto = get_crypto_service()
-    now = datetime.now(UTC)
-    if not force_refresh and (
-        creds.expires_at is not None and creds.expires_at.astimezone(UTC) > (now + timedelta(seconds=30))
-    ):
-        return crypto.decrypt(creds.encrypted_access_token)
-
-    if not creds.encrypted_refresh_token:
-        raise ValueError("Whoop refresh token is missing. Please reconnect Whoop.")
-
-    settings = get_settings()
-    if not settings.whoop_oauth_client_id or not settings.whoop_oauth_client_secret:
-        raise RuntimeError("Whoop OAuth is not configured (missing client_id/client_secret)")
-
-    refresh_token = crypto.decrypt(creds.encrypted_refresh_token)
-    try:
-        payload = whoop_refresh_tokens(
-            refresh_token=refresh_token,
-            client_id=settings.whoop_oauth_client_id,
-            client_secret=settings.whoop_oauth_client_secret,
-            scope="offline",
-        )
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code in {400, 401}:
-            db.delete(creds)
-            db.commit()
-            raise ValueError("Whoop connection expired. Please reconnect Whoop.") from exc
-        raise
-
-    access_token = payload.get("access_token")
-    if not isinstance(access_token, str) or not access_token.strip():
-        raise RuntimeError("Whoop token refresh returned an invalid access token")
-
-    new_refresh = payload.get("refresh_token")
-    creds.encrypted_access_token = crypto.encrypt(access_token)
-    if isinstance(new_refresh, str) and new_refresh.strip():
-        creds.encrypted_refresh_token = crypto.encrypt(new_refresh)
-    creds.expires_at = whoop_compute_expires_at(now=now, expires_in=payload.get("expires_in"))
-    creds.scope = str(payload.get("scope") or creds.scope or "")
-    db.add(creds)
-    db.commit()
-
-    return access_token
-
-
-def _strava_access_token(db: Session, *, user_id: uuid.UUID, force_refresh: bool = False) -> str:
-    creds = db.execute(
-        select(StravaCredentials).where(StravaCredentials.user_id == user_id).with_for_update()
-    ).scalar_one_or_none()
-    if creds is None:
-        raise ValueError("No Strava credentials found for user")
-
-    crypto = get_crypto_service()
-    now = datetime.now(UTC)
-    if not force_refresh and (
-        creds.expires_at is not None and creds.expires_at.astimezone(UTC) > (now + timedelta(seconds=30))
-    ):
-        return crypto.decrypt(creds.encrypted_access_token)
-
-    if not creds.encrypted_refresh_token:
-        raise ValueError("Strava refresh token is missing. Please reconnect Strava.")
-
-    settings = get_settings()
-    if not settings.strava_oauth_client_id or not settings.strava_oauth_client_secret:
-        raise RuntimeError("Strava OAuth is not configured (missing client_id/client_secret)")
-
-    refresh_token = crypto.decrypt(creds.encrypted_refresh_token)
-    try:
-        payload = strava_refresh_tokens(
-            refresh_token=refresh_token,
-            client_id=settings.strava_oauth_client_id,
-            client_secret=settings.strava_oauth_client_secret,
-        )
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code in {400, 401}:
-            db.delete(creds)
-            db.commit()
-            raise ValueError("Strava connection expired. Please reconnect Strava.") from exc
-        raise
-
-    access_token = payload.get("access_token")
-    if not isinstance(access_token, str) or not access_token.strip():
-        raise RuntimeError("Strava token refresh returned an invalid access token")
-
-    new_refresh = payload.get("refresh_token")
-    creds.encrypted_access_token = crypto.encrypt(access_token)
-    if isinstance(new_refresh, str) and new_refresh.strip():
-        creds.encrypted_refresh_token = crypto.encrypt(new_refresh)
-    creds.expires_at = strava_compute_expires_at(
-        now=now,
-        expires_at=payload.get("expires_at"),
-        expires_in=payload.get("expires_in"),
-    )
-    creds.scope = str(creds.scope or "")
-    db.add(creds)
-    db.commit()
-
-    return access_token
-
-
-def _extract_whoop_snapshot(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    activities_days: int,
-    metrics_days: int,
-) -> dict[str, Any]:
-    now = datetime.now(UTC)
-    workouts_start = now - timedelta(days=max(1, activities_days))
-    metrics_start = now - timedelta(days=max(1, metrics_days))
-
-    def _fetch_with_token(access_token: str) -> dict[str, Any]:
-        client = WhoopApiClient(access_token=access_token)
-        try:
-            return {
-                "profile_basic": client.get_basic_profile(),
-                "body_measurement": client.get_body_measurement(),
-                "workouts": client.list_workouts(start=workouts_start, end=now),
-                "cycles": client.list_cycles(start=metrics_start, end=now),
-                "recoveries": client.list_recoveries(start=metrics_start, end=now),
-                "sleeps": client.list_sleeps(start=metrics_start, end=now),
-            }
-        finally:
-            client.close()
-
-    access_token = _whoop_access_token(db, user_id=user_id)
-    try:
-        return _fetch_with_token(access_token)
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code != 401:
-            raise
-        # Best-effort: refresh and retry once if the stored access token was rejected.
-        access_token = _whoop_access_token(db, user_id=user_id, force_refresh=True)
-        return _fetch_with_token(access_token)
-
-
-def _extract_strava_snapshot(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    activities_days: int,
-    metrics_days: int,
-) -> dict[str, Any]:
-    now = datetime.now(UTC)
-    activities_after = int((now - timedelta(days=max(1, activities_days))).timestamp())
-    metrics_after = int((now - timedelta(days=max(1, metrics_days))).timestamp())
-    before = int(now.timestamp())
-
-    def _fetch_with_token(access_token: str) -> dict[str, Any]:
-        client = StravaApiClient(access_token=access_token)
-        try:
-            recent_activities = _list_strava_activities_with_pagination(
-                client=client,
-                after=activities_after,
-                before=before,
-            )
-            metrics_activities = _list_strava_activities_with_pagination(
-                client=client,
-                after=metrics_after,
-                before=before,
-            )
-            return {
-                "athlete_profile": client.get_logged_in_athlete(),
-                "recent_activities": recent_activities,
-                "training_load_history": _build_strava_training_load_history(metrics_activities),
-                "activity_summary": _build_strava_activity_summary(recent_activities),
-            }
-        finally:
-            client.close()
-
-    access_token = _strava_access_token(db, user_id=user_id)
-    try:
-        return _fetch_with_token(access_token)
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code != 401:
-            raise
-        access_token = _strava_access_token(db, user_id=user_id, force_refresh=True)
-        return _fetch_with_token(access_token)
 
 
 def get_sync_session() -> Session:
@@ -880,36 +557,8 @@ def _load_training_sources(
     activities_days: int,
     metrics_days: int,
 ) -> tuple[dict[str, Any], list[str]]:
-    sources: dict[str, Any] = {}
-    extraction_errors: list[str] = []
-
-    strava_creds = db.execute(select(StravaCredentials).where(StravaCredentials.user_id == user_id)).scalar_one_or_none()
-    if strava_creds:
-        try:
-            sources["strava"] = _extract_strava_snapshot(
-                db,
-                user_id=user_id,
-                activities_days=activities_days,
-                metrics_days=metrics_days,
-            )
-        except Exception:
-            logger.warning("Strava extraction failed for job %s; continuing with other sources", job_id, exc_info=True)
-            extraction_errors.append("strava")
-
-    whoop_creds = db.execute(select(WhoopCredentials).where(WhoopCredentials.user_id == user_id)).scalar_one_or_none()
-    if whoop_creds:
-        try:
-            sources["whoop"] = _extract_whoop_snapshot(
-                db,
-                user_id=user_id,
-                activities_days=activities_days,
-                metrics_days=metrics_days,
-            )
-        except Exception:
-            logger.warning("Whoop extraction failed for job %s; continuing with other sources", job_id, exc_info=True)
-            extraction_errors.append("whoop")
-
-    return sources, extraction_errors
+    del db, user_id, job_id, activities_days, metrics_days
+    return {}, []
 
 
 def _build_training_data(*, sources: dict[str, Any], extraction_errors: list[str]) -> dict[str, Any]:

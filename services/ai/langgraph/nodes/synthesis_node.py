@@ -14,6 +14,7 @@ from .node_base import (
     execute_node_with_error_handling,
     log_node_completion,
 )
+from .prompt_components import PROVIDER_OPTIONAL_COACHING_POLICY
 from .tool_calling_helper import extract_text_content, handle_tool_calling_in_node
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ Write your analysis in **rich markdown**. Structure it with:
 - Implications and risks (non-prescriptive)
 - Data tables, trend descriptions, and coaching insights
 
-Use tables, bullet lists, blockquotes, and emphasis for clarity."""
+Use tables, bullet lists, blockquotes, and emphasis for clarity.""" + PROVIDER_OPTIONAL_COACHING_POLICY
 
 SYNTHESIS_PLOT_INSTRUCTIONS = """
 ## Plot Integration
@@ -62,6 +63,11 @@ SYNTHESIS_USER_PROMPT = """Synthesize the expert analyses into a comprehensive a
 - Competitions: ```json {competitions} ```
 - Date: ```json {current_date} ```
 - Style: ```markdown {style_guide} ```
+
+### Training Evidence
+```json
+{training_evidence}
+```
 
 {plot_instructions}
 
@@ -112,6 +118,7 @@ async def synthesis_node(state: TrainingAnalysisState) -> dict[str, list | str |
         competitions=json.dumps(state["competitions"], indent=2),
         current_date=json.dumps(state["current_date"], indent=2),
         style_guide=state["style_guide"],
+        training_evidence=json.dumps(state.get("training_data", {}), indent=2),
         plot_instructions=(SYNTHESIS_PLOT_USER_INSTRUCTIONS if plotting_enabled else ""),
     )
 
