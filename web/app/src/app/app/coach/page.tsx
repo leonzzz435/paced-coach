@@ -24,19 +24,19 @@ export default async function CoachInboxPage({ searchParams }: CoachInboxPagePro
             <h1 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">{COACH_LABEL}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{COACH_DESCRIPTION}</p>
             <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              Continue conversations, review recap proposals, and ask for schedule changes in one focused workspace.
+              Continue conversations, review plan proposals, and ask for schedule changes in one focused workspace.
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             <div className="rounded-[1.4rem] border border-white/10 bg-[var(--surface)]/92 px-4 py-3 shadow-[0_12px_28px_rgba(2,6,23,0.16)]">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">Good for</div>
-              <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">Workout swaps, recovery questions, race planning, and recap follow-ups.</div>
+              <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">Workout swaps, training reflections, race planning, and schedule changes.</div>
             </div>
             <div className="rounded-[1.4rem] border border-white/10 bg-[var(--surface)]/92 px-4 py-3 shadow-[0_12px_28px_rgba(2,6,23,0.16)]">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">Context used</div>
               <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                Your declared profile, goals, current plan, prior coaching outputs, and connected activity/recovery data when available.
+                Your declared profile, goals, current plan, prior coaching outputs, and what you share in the conversation.
               </div>
             </div>
           </div>

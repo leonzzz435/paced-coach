@@ -47,9 +47,6 @@ export type CoachThreadResponse = {
   can_send_message: boolean;
   coach_gate_message?: string | null;
   coach_gate_target?: "settings" | null;
-  can_trigger_recap: boolean;
-  training_provider_message?: string | null;
-  recap_gate_target?: "settings" | null;
   has_pending_proposal: boolean;
   pending_proposal_ids?: string[];
   next_after_seq?: number | null;
@@ -66,7 +63,7 @@ export type CoachTurnUiContext = {
 
 export type CoachTurnRequest = {
   thread_id?: string;
-  action: "text" | "proposal_accept" | "proposal_reject" | "recap";
+  action: "text" | "proposal_accept" | "proposal_reject";
   idempotency_key: string;
   message?: string;
   proposal_id?: string;
@@ -90,9 +87,6 @@ export type CoachTurnResponse = {
     coach_gate_message?: string | null;
     coach_gate_target?: "settings" | null;
     has_pending_proposal: boolean;
-    can_trigger_recap: boolean;
-    training_provider_message?: string | null;
-    recap_gate_target?: "settings" | null;
     pending_proposal_ids: string[];
     next_after_seq?: number | null;
   };

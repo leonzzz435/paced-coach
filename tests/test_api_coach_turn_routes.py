@@ -28,7 +28,6 @@ def _build_turn_payload() -> dict:
             "messages": [],
             "quota": {"is_limited": False, "remaining": None, "limit": None, "used": 0, "week_anchor_utc": ""},
             "has_pending_proposal": False,
-            "can_trigger_recap": True,
             "pending_proposal_ids": [],
             "next_after_seq": 4,
         },
@@ -351,6 +350,29 @@ def test_coach_turn_non_text_action_bypasses_sse(monkeypatch):
     assert response.json()["status"] == "accepted"
 
 
+def test_coach_turn_rejects_removed_recap_action():
+    user_id = uuid.uuid4()
+
+    async def fake_get_db():
+        yield object()
+
+    async def fake_get_current_user():
+        return user_id
+
+    app = create_app()
+    app.dependency_overrides[deps_module.get_db] = fake_get_db
+    app.dependency_overrides[deps_module.get_current_user] = fake_get_current_user
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/coach/turn",
+        json={"action": "recap", "idempotency_key": "removed-recap-action"},
+        headers={"Authorization": "Bearer test"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_legacy_coach_action_endpoints_are_removed():
     app = create_app()
     client = TestClient(app)
@@ -382,7 +404,6 @@ def test_coach_thread_route_available(monkeypatch):
             "messages": [],
             "quota": {"is_limited": False, "remaining": None, "limit": None, "used": 0, "week_anchor_utc": ""},
             "has_pending_proposal": False,
-            "can_trigger_recap": True,
             "pending_proposal_ids": [],
             "next_after_seq": 3,
             "week_anchor_utc": datetime.now().isoformat(),

@@ -56,9 +56,6 @@ export default function AppNav({ variant }: { variant?: "desktop-rail" | "mobile
               can_send_message: false,
               coach_gate_message: null,
               coach_gate_target: null,
-              can_trigger_recap: false,
-              training_provider_message: null,
-              recap_gate_target: null,
               week_anchor_utc: "",
             }),
           }));

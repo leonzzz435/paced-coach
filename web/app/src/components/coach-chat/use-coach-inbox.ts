@@ -68,9 +68,6 @@ function fallbackThreadPayload(item: CoachThreadListItem): CoachThreadResponse {
     coach_gate_message: null,
     coach_gate_target: null,
     has_pending_proposal: item.has_pending_proposal ?? false,
-    can_trigger_recap: false,
-    training_provider_message: null,
-    recap_gate_target: null,
     pending_proposal_ids: [],
     next_after_seq: null,
   };
@@ -105,9 +102,6 @@ function toThreadResponsePayload(
     coach_gate_message: payload.projection.coach_gate_message ?? null,
     coach_gate_target: payload.projection.coach_gate_target ?? null,
     has_pending_proposal: payload.projection.has_pending_proposal,
-    can_trigger_recap: payload.projection.can_trigger_recap,
-    training_provider_message: payload.projection.training_provider_message ?? null,
-    recap_gate_target: payload.projection.recap_gate_target ?? null,
     pending_proposal_ids: payload.projection.pending_proposal_ids,
     next_after_seq: payload.projection.next_after_seq ?? null,
   };
@@ -273,7 +267,7 @@ export function useCoachInbox({
 
   useEffect(() => {
     if (!active) return;
-    if (!thread && !optimisticAthleteMessage && busyAction !== "send" && busyAction !== "recap") return;
+    if (!thread && !optimisticAthleteMessage && busyAction !== "send") return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [active, busyAction, optimisticAthleteMessage, thread]);
 
@@ -430,7 +424,7 @@ export function useCoachInbox({
       action: BusyAction,
       payload: {
         thread_id?: string;
-        action: "text" | "recap";
+        action: "text";
         message?: string;
         idempotency_key: string;
         ui_context?: CoachTurnUiContext;
@@ -591,19 +585,6 @@ export function useCoachInbox({
     ]
   );
 
-  const triggerRecap = useCallback(async () => {
-    if (composerDisabled || !thread?.can_trigger_recap) return;
-
-    const triggered = await runStreamingTextAction("recap", {
-      thread_id: selectedThreadId ?? undefined,
-      action: "recap",
-      idempotency_key: idempotencyKey("coach-recap"),
-    });
-    if (triggered.ok) {
-      router.refresh();
-    }
-  }, [composerDisabled, router, runStreamingTextAction, selectedThreadId, thread?.can_trigger_recap]);
-
   const acceptProposal = useCallback(
     async (proposalId: string) => {
       if (!proposalId || composerDisabled) return;
@@ -713,9 +694,6 @@ export function useCoachInbox({
     canSendMessage: Boolean(thread?.can_send_message),
     coachGateMessage: thread?.coach_gate_message ?? null,
     coachGateTarget: thread?.coach_gate_target ?? null,
-    threadCanTriggerRecap: Boolean(thread?.can_trigger_recap),
-    trainingProviderMessage: thread?.training_provider_message ?? null,
-    recapGateTarget: thread?.recap_gate_target ?? null,
     composerDisabled,
     listComposerDisabled,
     isConversationView,
@@ -723,7 +701,6 @@ export function useCoachInbox({
     openThread,
     closeSelectedThread,
     sendMessage,
-    triggerRecap,
     acceptProposal,
     rejectProposal,
     trackCoachEvent,

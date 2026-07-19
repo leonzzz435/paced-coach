@@ -30,7 +30,7 @@ class CoachTurnUiContext(BaseModel):
 
 class CoachTurnRequest(BaseModel):
     thread_id: uuid.UUID | None = None
-    action: str = Field(..., pattern="^(text|proposal_accept|proposal_reject|recap)$")
+    action: str = Field(..., pattern="^(text|proposal_accept|proposal_reject)$")
     message: str | None = Field(default=None, min_length=1, max_length=2000)
     proposal_id: uuid.UUID | None = None
     reason: str | None = Field(default=None, min_length=1, max_length=500)
@@ -200,7 +200,7 @@ async def post_turn(
     db: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(get_current_user),
 ):
-    if payload.action not in ("text", "recap") or not _wants_sse_response(request):
+    if payload.action != "text" or not _wants_sse_response(request):
         return await _post_coach_turn_payload(payload=payload, db=db, user_id=user_id)
 
     return StreamingResponse(

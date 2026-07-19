@@ -6,7 +6,7 @@ import type { CoachThreadMessage, CoachTurnResponse } from "@/lib/types/coach";
 import type { CoachQuota } from "@/lib/types/quota";
 import type { UiDayPlan, UiHtmlBlock, UiWeekPlan, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 
-export type BusyAction = "accept" | "reject" | "recap" | "send" | "archive";
+export type BusyAction = "accept" | "reject" | "send" | "archive";
 export type InboxView = "thread_list" | "conversation";
 
 export type CoachTurnStatusEvent = {
@@ -23,10 +23,10 @@ export const COACH_STREAM_DONE_READ_TIMEOUT_MS = 5000;
 export const COACH_NAME = "Paced Coach";
 export const COACH_LABEL = "Adaptive endurance guidance";
 export const COACH_DESCRIPTION =
-  "Ask for block adjustments, recovery guidance, and race strategy — every answer grounded in your complete training history.";
+  "Ask for block adjustments, scheduling guidance, and race strategy — grounded in your declared context and active plan.";
 export const COACH_INITIALS = "PC";
 export const COACH_QUICK_PROMPTS = [
-  "How was my recovery this week?",
+  "Help me reflect on this training week.",
   "Can I swap tomorrow's workout?",
   "Am I on track for my next race?",
   "What should I prioritize this week?",

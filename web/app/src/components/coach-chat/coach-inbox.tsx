@@ -76,9 +76,6 @@ export default function CoachInbox({
     canSendMessage,
     coachGateMessage,
     coachGateTarget,
-    threadCanTriggerRecap,
-    trainingProviderMessage,
-    recapGateTarget,
     composerDisabled,
     listComposerDisabled,
     isConversationView,
@@ -88,10 +85,8 @@ export default function CoachInbox({
     openThread,
     closeSelectedThread,
     sendMessage,
-    triggerRecap,
     acceptProposal,
     rejectProposal,
-    trackCoachEvent,
   } = useCoachInbox({
     active,
     onBadgeCountChange,
@@ -290,9 +285,6 @@ export default function CoachInbox({
           coachGateTarget={coachGateTarget}
           isConversationView={isConversationView}
           selectedThreadStatus={selectedThreadStatus}
-          threadCanTriggerRecap={threadCanTriggerRecap}
-          trainingProviderMessage={trainingProviderMessage}
-          recapGateTarget={recapGateTarget}
           busyAction={busyAction}
           composerDisabled={composerDisabled}
           listComposerDisabled={listComposerDisabled}
@@ -301,10 +293,6 @@ export default function CoachInbox({
           onQuickPromptSelect={applyQuickPrompt}
           onSendMessage={(forceNewThread) => {
             void sendMessage(forceNewThread);
-          }}
-          onTriggerRecap={() => {
-            trackCoachEvent("coach_weekly_recap_requested", { thread_id: selectedThreadId });
-            void triggerRecap();
           }}
         />
       </div>

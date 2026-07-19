@@ -17,15 +17,17 @@ const publicSurfaces = {
   socialPreview: readRepoFile("web/app/public/og.svg"),
 };
 const coachComposer = readRepoFile("web/app/src/components/coach-chat/coach-inbox-composer-bar.tsx");
+const coachPage = readRepoFile("web/app/src/app/app/coach/page.tsx");
+const coachCopy = readRepoFile("web/app/src/components/coach-chat/coach-inbox-parts.tsx");
 
 for (const [surface, content] of Object.entries(publicSurfaces)) {
   assert.match(content, /no wearable required/i, `${surface} must state that no wearable is required`);
 }
 
 assert.doesNotMatch(
-  coachComposer,
-  /Strava|WHOOP|Connect Data Source|integration settings/i,
-  "coach composer must not expose removed connector flows",
+  [coachComposer, coachPage, coachCopy].join("\n"),
+  /Strava|WHOOP|Connect Data Source|integration settings|connected activity|connected recovery|recap proposals|recap follow-ups/i,
+  "coach surfaces must not expose removed connector or recap flows",
 );
 
 const combined = Object.values(publicSurfaces).join("\n");

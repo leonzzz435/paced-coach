@@ -17,16 +17,12 @@ type CoachInboxComposerBarProps = {
   coachGateTarget: "settings" | null;
   isConversationView: boolean;
   selectedThreadStatus: "active" | "archived";
-  threadCanTriggerRecap: boolean;
-  trainingProviderMessage: string | null;
-  recapGateTarget: "settings" | null;
   busyAction: BusyAction | null;
   composerDisabled: boolean;
   listComposerDisabled: boolean;
   input: string;
   onInputChange: (value: string) => void;
   onSendMessage: (forceNewThread?: boolean) => void;
-  onTriggerRecap: () => void;
   onQuickPromptSelect: (value: string) => void;
 };
 

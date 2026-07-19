@@ -42,7 +42,6 @@ from api.services.coach_event_store import (
     hydrate_recap_messages_by_thread,
     list_coach_threads,
     resolve_coach_chat_gate_state,
-    resolve_recap_gate_state,
     serialize_thread_event,
 )
 from api.services.coach_memory import maybe_update_thread_memory
@@ -53,11 +52,9 @@ from api.services.coach_quota import (
     get_coach_weekly_quota,
 )
 from api.services.coach_thread_titles import generate_thread_title_from_exchange
-from api.services.full_run_policy import evaluate_full_run_availability, evaluate_weekly_recap_availability
-from api.services.integration_status import load_integrations_status
-from api.services.local_usage import consume_adaptive_update, get_local_usage_context, has_weekly_recap_feature_access
+from api.services.full_run_policy import evaluate_full_run_availability
+from api.services.local_usage import consume_adaptive_update, get_local_usage_context
 from api.services.ongoing_tools import build_ongoing_tool_registry
-from api.services.recap import execute_recap_turn
 from core.recap_schedule import compute_recap_week_anchor_utc
 from services.ai.coach.continuum_turn_agent import run_continuum_coach_turn
 from services.ai.langgraph.schemas.ui_blocks import UiWeeklyPlan
@@ -542,9 +539,6 @@ async def _projection_payload(
         "coach_gate_message": projection["coach_gate_message"],
         "coach_gate_target": projection["coach_gate_target"],
         "has_pending_proposal": projection["has_pending_proposal"],
-        "can_trigger_recap": projection["can_trigger_recap"],
-        "training_provider_message": projection["training_provider_message"],
-        "recap_gate_target": projection["recap_gate_target"],
         "pending_proposal_ids": projection["pending_proposal_ids"],
         "next_after_seq": projection["next_after_seq"],
     }
@@ -568,7 +562,7 @@ async def _resolve_thread_for_turn(
             thread_id=thread_id,
         )
 
-    if action in ("text", "recap"):
+    if action == "text":
         return await get_or_create_coach_thread(db, user_id=user_id)
 
     if proposal_id is not None:
@@ -949,14 +943,7 @@ async def _run_turn_action(
             proposal_id=proposal_id,
             reason=reason or "",
         )
-    if action == "recap":
-        return await execute_recap_turn(
-            db,
-            user_id=user_id,
-            thread=thread,
-            status_emitter=status_emitter,
-        )
-    raise HTTPException(status_code=400, detail="action must be text, proposal_accept, proposal_reject, or recap")
+    raise HTTPException(status_code=400, detail="action must be text, proposal_accept, or proposal_reject")
 
 
 async def post_coach_turn(
@@ -1015,7 +1002,7 @@ async def post_coach_turn(
             reason=reason,
             quota_source_id=f"{user_id}:{key}",
             ui_context=ui_context,
-            status_emitter=status_emitter if action in ("text", "recap") else None,
+            status_emitter=status_emitter if action == "text" else None,
         )
         if should_set_title_from_first_exchange:
             await _maybe_set_thread_title_from_first_exchange(
@@ -1033,9 +1020,6 @@ async def post_coach_turn(
             "coach_gate_message": projection["coach_gate_message"],
             "coach_gate_target": projection["coach_gate_target"],
             "has_pending_proposal": projection["has_pending_proposal"],
-            "can_trigger_recap": projection["can_trigger_recap"],
-            "training_provider_message": projection["training_provider_message"],
-            "recap_gate_target": projection["recap_gate_target"],
             "pending_proposal_ids": projection["pending_proposal_ids"],
             "next_after_seq": projection["next_after_seq"],
         }
@@ -1076,16 +1060,8 @@ async def get_coach_thread_v2(
         if thread is None:
             anchor = compute_recap_week_anchor_utc()
             quota = await get_coach_weekly_quota(db, user_id=user_id, week_anchor_utc=anchor)
-            recap_availability = await evaluate_weekly_recap_availability(db, user_id=user_id)
-            usage_context = await get_local_usage_context(db, user_id=user_id)
-            integrations_status = await load_integrations_status(db, user_id=user_id)
             can_send_message, coach_gate_message, coach_gate_target = resolve_coach_chat_gate_state(
                 quota=quota,
-            )
-            can_trigger_recap, training_provider_message, recap_gate_target = resolve_recap_gate_state(
-                recap_feature_enabled=has_weekly_recap_feature_access(usage_context),
-                recap_window_open=recap_availability.allowed,
-                integrations_status=integrations_status,
             )
             return {
                 "thread": None,
@@ -1095,9 +1071,6 @@ async def get_coach_thread_v2(
                 "coach_gate_message": coach_gate_message,
                 "coach_gate_target": coach_gate_target,
                 "has_pending_proposal": False,
-                "can_trigger_recap": can_trigger_recap,
-                "training_provider_message": training_provider_message,
-                "recap_gate_target": recap_gate_target,
                 "pending_proposal_ids": [],
                 "next_after_seq": after_seq,
                 "week_anchor_utc": anchor.astimezone(UTC).isoformat(),
@@ -1116,9 +1089,6 @@ async def get_coach_thread_v2(
         "coach_gate_message": projection["coach_gate_message"],
         "coach_gate_target": projection["coach_gate_target"],
         "has_pending_proposal": projection["has_pending_proposal"],
-        "can_trigger_recap": projection["can_trigger_recap"],
-        "training_provider_message": projection["training_provider_message"],
-        "recap_gate_target": projection["recap_gate_target"],
         "pending_proposal_ids": projection["pending_proposal_ids"],
         "next_after_seq": projection["next_after_seq"],
         "week_anchor_utc": compute_recap_week_anchor_utc().astimezone(UTC).isoformat(),
