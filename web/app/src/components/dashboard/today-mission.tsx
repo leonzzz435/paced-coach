@@ -172,7 +172,7 @@ export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, d
 
           <button
             type="button"
-            className="shrink-0 self-start rounded-full bg-[var(--accent-coach)] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 hover:brightness-110 active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-coach)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+            className="min-h-11 shrink-0 self-start rounded-full bg-[var(--accent-coach)] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 hover:brightness-110 active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-coach)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             onClick={() => openCoachWithPrefill(askCoachPrefill)}
           >
             Ask Coach

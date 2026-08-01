@@ -218,7 +218,7 @@ export default function WeeklyPlanViewV3({
                             type="button"
                             disabled={pendingDayIds.has(selectedDay.day_id)}
                             aria-busy={pendingDayIds.has(selectedDay.day_id)}
-                            className={`inline-flex shrink-0 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isDayDone(selectedDay) ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-[var(--border)] text-[var(--text-secondary)] hover:border-emerald-400/30 hover:text-emerald-300"}`}
+                            className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isDayDone(selectedDay) ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-[var(--border)] text-[var(--text-secondary)] hover:border-emerald-400/30 hover:text-emerald-300"}`}
                             onClick={() => toggleCompletion(selectedDay)}
                         >
                             <Check className="h-4 w-4" /> {isDayDone(selectedDay) ? "Completed" : "Mark complete"}
