@@ -9,9 +9,10 @@ type Props = {
     onAskAboutBlock?: OnAskAboutBlock;
     theme?: WeeklyPlanTheme;
     mode?: PlanViewMode;
+    nowIso?: string;
 };
 
-export default function WeeklyPlanView({ weeklyPlan, highlightDayIds, onAskAboutBlock, theme, mode }: Props) {
+export default function WeeklyPlanView({ weeklyPlan, highlightDayIds, onAskAboutBlock, theme, mode, nowIso }: Props) {
     return (
         <RenderWeeklyPlan
             weeklyPlan={weeklyPlan}
@@ -19,6 +20,7 @@ export default function WeeklyPlanView({ weeklyPlan, highlightDayIds, onAskAbout
             onAskAboutBlock={onAskAboutBlock}
             theme={theme}
             mode={mode}
+            nowIso={nowIso}
         />
     );
 }

@@ -5,9 +5,7 @@ from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
 
-import anthropic
 import openai
-from anthropic._exceptions import DeadlineExceededError, OverloadedError, ServiceUnavailableError
 from langchain_core.exceptions import OutputParserException
 from langgraph.errors import GraphInterrupt
 from pydantic import ValidationError
@@ -33,7 +31,7 @@ class APIOverloadError(RetryableError):
 
 
 def _extract_retry_after(exc: Exception) -> float | None:
-    """Extract Retry-After seconds from OpenAI/Anthropic 429 responses."""
+    """Extract Retry-After seconds from OpenAI 429 responses."""
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", None)
     if headers:
@@ -62,15 +60,6 @@ class RetryConfig:
         self.exponential_base = exponential_base
         self.jitter = jitter
         self.retryable_exceptions = retryable_exceptions or {
-            # Anthropic
-            anthropic.RateLimitError,  # 429 - rate limits
-            anthropic.ConflictError,  # 409 - conflicts
-            anthropic.InternalServerError,  # 5xx - server errors
-            ServiceUnavailableError,  # 503 - service unavailable
-            DeadlineExceededError,  # 504 - gateway timeout
-            OverloadedError,  # 529 - overloaded
-            anthropic.APIConnectionError,  # Network/connection issues
-            anthropic.APITimeoutError,  # Timeouts
             # OpenAI
             openai.RateLimitError,  # 429 - rate limits
             openai.APIConnectionError,  # Network/connection issues

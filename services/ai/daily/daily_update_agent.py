@@ -3,34 +3,29 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from api.services.ongoing_tools import OngoingToolRegistry
-from services.ai.ai_settings import AgentRole
 from services.ai.daily.schemas import DailyUpdateNarrative
-from services.ai.langgraph.nodes.tool_calling_helper import handle_tool_calling_in_node
-from services.ai.model_config import ModelSelector
-from services.ai.utils.retry_handler import AI_ANALYSIS_CONFIG, retry_with_backoff
-from services.ai.utils.structured_output import coerce_structured_output
+from services.ai.head_coach.agent import build_head_coach_agent, invoke_head_coach_agent
+from services.ai.head_coach.run_profiles import get_run_profile
+from services.ai.head_coach.schemas import RunProfileName
+from services.ai.head_coach.tool_policy import HeadCoachToolRegistry, build_profile_tools
 
-DAILY_SYSTEM_PROMPT = """You are an elite endurance coach performing a daily coaching check.
+DAILY_SYSTEM_PROMPT = """Perform today's coaching check as the athlete's persistent Head Coach.
 
 Coaching Lens — reason through these concepts, not as formulas, but as the way an experienced coach thinks:
-- Readiness is multi-dimensional: a single bad night doesn't necessarily mean downgrade. Look at the 3-5 day trend in HRV, sleep, and RHR together.
-- Distinguish between pre-competition taper nervousness (elevated RHR, restless sleep) and genuine fatigue. Context matters.
+- Readiness is multi-dimensional. Reason from the athlete's subjective check-in, declared health context, plan, and coaching history.
+- Distinguish between pre-competition nerves and genuine fatigue by asking about lived symptoms and context when evidence is insufficient.
 - Recovery debt accumulates non-linearly: two moderate days of under-recovery are manageable, but three or more can cascade into overreaching.
 - Session timing within the microcycle: a hard day following a rest day is expected; a hard day following two hard days requires strong readiness signals.
 - Athlete momentum: sometimes maintaining the training rhythm matters more than perfect readiness numbers, especially for consistency-building phases.
-- Subjective athlete check-ins are real coaching evidence. Use them alongside device data, not below it and not above it.
+- Subjective athlete check-ins are first-class coaching evidence; do not invent device measurements.
 - Athlete standards matter: if the current plan has explicit volume floors or the athlete normally tolerates meaningful volume, do not treat short sessions as the default build stimulus.
 
 Principles:
-- Your goal is to evaluate if today's planned training is still appropriate given recent recovery data and today's completion status.
-- Read the deterministic `evidence_profile` and `claims_policy` before making any readiness or activity-completeness claims.
-- Use available tools to fetch WHOOP and Strava data from the last few days.
-- Treat WHOOP as readiness/recovery evidence and Strava as activity-history/execution evidence.
-- If the evidence profile says readiness guidance is proxy-only, do not speak as if HRV, sleep, or resting HR were measured. Coach from recent load/execution and say that recovery certainty is limited.
+- Your goal is to evaluate if today's planned training is still appropriate given athlete-declared context and today's explicit completion status.
+- Start from the active plan, its completion state, athlete check-in, calendar context, and coach history.
 - Use tools to fetch the current active weekly plan to see exactly what blocks are scheduled.
-- Determine if today's training is already done. Check BOTH: the `is_completed` flag in the plan AND actual recent activities via `get_recent_activities`. If a matching activity exists for today (same sport, plausible duration) but `is_completed` is false, treat the session as done. If already trained, do not propose changes for today, but perhaps propose recovery adjustments for tomorrow.
-- If readiness is compromised (e.g., tanked HRV, sickness, poor sleep trend), you MUST propose Plan Patch Operations to downgrade or rest. Protect the athlete.
+- Determine if today's training is already done. The plan's `is_completed` state is authoritative local evidence; optional recent activities may add evidence but their absence never proves non-completion.
+- If athlete-declared readiness is compromised by sickness, pain, or sustained poor sleep, propose appropriate Plan Patch Operations. Protect the athlete.
 - If readiness is strong and the plan is already optimal, leave `optional_proposal_ops` empty and tell the athlete to execute. Good readiness is not a license to randomly add intensity.
 - If readiness is strong, the athlete has usable time, and the weekly/season intent benefits from it, you MAY propose a low-risk adjustment such as easy volume, support work, better timing, or an optional desk-load movement add-on. Protect the next key session and avoid stress stacking.
 - If you downgrade or shorten sport-specific training, explain whether the weekly sport-specific volume floor is still protected. When appropriate, propose how to preserve that volume later with easy work instead of silently losing it.
@@ -46,7 +41,7 @@ Output contract:
   Use today's freshest evidence to decide that strip.
   If the baseline strip is still correct, restate it explicitly instead of leaving this empty.
   If you mention live recovery or readiness in `today_focus_blocks`, the KPI strip must visibly reflect those same live signals.
-- 'today_focus_blocks' should be compact, scannable HTML meant to be displayed at the very top of the user's dashboard today.
+- `today_focus_blocks` should use compact semantic blocks with Markdown content for deterministic rendering at the top of the dashboard. Never emit raw HTML or CSS.
 - Focus on ACTIONABLE advice for today's session based on today's state. Don't waste space with generic pleasantries.
 """
 
@@ -63,15 +58,13 @@ def _build_daily_user_prompt(
         "Perform the daily coaching update for this athlete.\n",
         f"Target Date: {target_date_iso}\n",
         f"Trigger source: {trigger_source}\n",
-        "Deterministic context has already been collected for this run. Treat it as the primary ground truth.",
-        "1. Inspect the deterministic evidence_profile and claims_policy in the prefetched bundle or tool outputs before making claims.",
-        "2. Fetch recent recovery/readiness evidence for the last few days. Use sleep/HRV/RHR when available; otherwise treat activity-derived stress as proxy-only evidence.",
-        "3. Fetch the active weekly plan to see what is scheduled today.",
-        "4. Fetch the current analysis if you need to compare today's front-row dashboard metrics against the baseline strip you may want to restate.",
-        "5. Read the relevant background context (season plan, recent full analysis run) if you need the big picture.",
-        "6. Evaluate if today's plan is optimal. If not, generate CoachPatchOps to shift or modify it.",
-        "7. Write the today_focus_blocks to explain your assessment and what they should focus on today.",
-        "8. Always populate dashboard_kpis with the KPI strip that should be visible after this sync; if the baseline strip still fits, restate it explicitly.",
+        "The athlete-owned local context is the ground truth for this run.",
+        "1. Fetch the active weekly plan to see what is scheduled today.",
+        "2. Read the athlete profile, season strategy, competition context, and coach history when useful.",
+        "3. Reconcile the athlete check-in with the plan without inventing device metrics or completion evidence.",
+        "4. Evaluate if today's plan is optimal. If not, generate CoachPatchOps to shift or modify it.",
+        "5. Write today_focus_blocks that make the assessment and next action concrete.",
+        "6. Populate dashboard_kpis only with claims supported by local athlete-owned context.",
     ]
 
     if athlete_check_in:
@@ -81,18 +74,7 @@ def _build_daily_user_prompt(
                 "Athlete subjective check-in for today:",
                 athlete_check_in,
                 "",
-                "Use this check-in as first-class context. Reconcile it with device evidence, recent load, the current weekly plan, and the next key session before changing the plan.",
-            ]
-        )
-
-    if prefetched_recovery_readiness:
-        parts.extend(
-            [
-                "",
-                "Prefetched recovery/readiness bundle (all providers active at run start should appear under `sources`):",
-                "```json",
-                json.dumps(prefetched_recovery_readiness, ensure_ascii=False, sort_keys=True, indent=2),
-                "```",
+                "Use this check-in as first-class context. Reconcile it with the current plan, declared constraints, and the next key session before changing the plan.",
             ]
         )
 
@@ -112,7 +94,7 @@ def _build_daily_user_prompt(
 
 async def generate_daily_update_narrative(
     *,
-    tool_registry: OngoingToolRegistry,
+    tool_registry: HeadCoachToolRegistry,
     target_date_iso: str,
     trigger_source: str,
     athlete_check_in: str | None = None,
@@ -120,34 +102,24 @@ async def generate_daily_update_narrative(
     prefetched_weekly_plan: dict | None = None,
     invoke_config: dict[str, Any] | None = None,
 ) -> DailyUpdateNarrative:
-    tools = tool_registry.create_langchain_tools()
-    base_llm = ModelSelector.get_llm(AgentRole.DAILY_UPDATE)
-    llm_with_tools = base_llm.bind_tools(tools) if tools else base_llm
-    llm_with_structure = base_llm.with_structured_output(DailyUpdateNarrative)
-
-    base_messages = [
-        {"role": "system", "content": DAILY_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": _build_daily_user_prompt(
-                trigger_source=trigger_source,
-                target_date_iso=target_date_iso,
-                athlete_check_in=athlete_check_in,
-                prefetched_recovery_readiness=prefetched_recovery_readiness,
-                prefetched_weekly_plan=prefetched_weekly_plan,
-            ),
-        },
-    ]
-
-    async def call_daily():
-        return await handle_tool_calling_in_node(
-            llm_with_tools=llm_with_tools,
-            messages=base_messages,
-            tools=tools,
-            max_iterations=12,
-            final_output_llm=llm_with_structure,
-            invoke_config=invoke_config,
-        )
-
-    response = await retry_with_backoff(call_daily, AI_ANALYSIS_CONFIG, "Daily Update Agent")
-    return coerce_structured_output(response, DailyUpdateNarrative)
+    profile = get_run_profile(RunProfileName.DAILY_ADAPTATION)
+    tools = build_profile_tools(profile, tool_registry=tool_registry)
+    agent = build_head_coach_agent(
+        profile_name=profile.name,
+        response_schema=DailyUpdateNarrative,
+        tools=tools,
+        task_instructions=DAILY_SYSTEM_PROMPT,
+        name="daily_adaptation",
+    )
+    return await invoke_head_coach_agent(
+        agent=agent,
+        user_prompt=_build_daily_user_prompt(
+            trigger_source=trigger_source,
+            target_date_iso=target_date_iso,
+            athlete_check_in=athlete_check_in,
+            prefetched_recovery_readiness=prefetched_recovery_readiness,
+            prefetched_weekly_plan=prefetched_weekly_plan,
+        ),
+        response_schema=DailyUpdateNarrative,
+        invoke_config=invoke_config,
+    )

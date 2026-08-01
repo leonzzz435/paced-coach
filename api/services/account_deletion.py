@@ -31,6 +31,7 @@ from api.models.local_usage import LocalUsageCounter, LocalUsageEvent, LocalUsag
 from api.models.oauth_session import OAuthSession
 from api.models.user import User
 from api.models.weekly_recap_run import WeeklyRecapRun
+from services.ai.head_coach.checkpointing import delete_owner_checkpoints
 
 
 def _local_reset_success_payload() -> dict[str, str]:
@@ -63,6 +64,7 @@ async def _load_user_for_deletion(db: AsyncSession, *, user_id: uuid.UUID) -> Si
 
 
 async def _delete_local_account_records(db: AsyncSession, *, user_id: uuid.UUID, delete_user: bool = True):
+    await delete_owner_checkpoints(db, owner_id=user_id)
     await db.execute(
         delete(CoachMessage).where(
             CoachMessage.conversation_id.in_(select(CoachConversation.id).where(CoachConversation.user_id == user_id))

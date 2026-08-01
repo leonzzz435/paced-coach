@@ -7,7 +7,7 @@ This app is designed for a single local operator on `localhost`.
 - Docker with Docker Compose v2
 - Pixi
 - Node.js 24 and npm
-- One LLM API key: `OPENAI_API_KEY` for the default mode, or `ANTHROPIC_API_KEY` with `AI_MODE=anthropic`
+- One OpenAI API key: `OPENAI_API_KEY`
 
 ## Setup
 
@@ -27,7 +27,7 @@ Open `http://localhost:3000/app`.
 
 ## First Useful Run
 
-No wearable is required. With one supported LLM key configured:
+No wearable is required. With an OpenAI API key configured:
 
 1. Describe your training history, availability, constraints, and primary goals in the athlete profile.
 2. Add a target race or a primary goal.
@@ -38,18 +38,11 @@ Version 2.2.0 has no external training-data connectors. The complete release pat
 
 ## Required Configuration
 
-Set `OPENAI_API_KEY` in `.env` for the default GPT/OpenAI routing:
+Set `OPENAI_API_KEY` in `.env`:
 
 ```bash
 OPENAI_API_KEY=...
 AI_MODE=cost_effective
-```
-
-Or use Anthropic routing:
-
-```bash
-ANTHROPIC_API_KEY=...
-AI_MODE=anthropic
 ```
 
 The default local mode is:

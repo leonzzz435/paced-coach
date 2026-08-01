@@ -6,18 +6,32 @@ export const VERSION_MANIFEST = {
     "ui_schema": {
       "default_version": 1,
       "supported_versions": [
-        1
-      ]
+        1,
+        3
+      ],
+      "supported_versions_by_kind": {
+        "analysis": [
+          1
+        ],
+        "season": [
+          1,
+          3
+        ],
+        "weekly": [
+          1,
+          3
+        ]
+      }
     }
   },
   "components": {
     "db_schema": {
-      "alembic_head": "001_initial_local_first",
-      "version": "1.0.0"
+      "alembic_head": "002_head_coach_checkpoints",
+      "version": "1.1.0"
     },
     "ui_schema": {
-      "current_schema_version": 1,
-      "version": "1.0.0"
+      "current_schema_version": 3,
+      "version": "3.0.0"
     }
   },
   "manifest_version": 1,
@@ -29,4 +43,5 @@ export const VERSION_MANIFEST = {
 export type VersionManifest = typeof VERSION_MANIFEST;
 
 export const SUPPORTED_SCHEMA_VERSIONS = VERSION_MANIFEST.compatibility.ui_schema.supported_versions;
+export const SUPPORTED_SCHEMA_VERSIONS_BY_KIND = VERSION_MANIFEST.compatibility.ui_schema.supported_versions_by_kind;
 export const DEFAULT_SCHEMA_VERSION = VERSION_MANIFEST.compatibility.ui_schema.default_version;

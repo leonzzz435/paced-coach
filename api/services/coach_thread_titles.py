@@ -50,21 +50,14 @@ def _normalize_title(raw_title: str) -> str | None:
 
 async def generate_thread_title_from_exchange(*, user_message: str, coach_reply: str) -> str | None:
     try:
-        llm = ModelSelector.get_llm(AgentRole.COACH_TRIAGE)
+        llm = ModelSelector.get_llm(AgentRole.COACH_TRIAGE, enable_native_web_search=False)
     except RuntimeError:
         return None
 
     response = await llm.ainvoke(
         [
             SystemMessage(content=_TITLE_PROMPT),
-            HumanMessage(
-                content=(
-                    "Athlete:\n"
-                    f"{user_message[:300]}\n\n"
-                    "Coach:\n"
-                    f"{coach_reply[:300]}"
-                )
-            ),
+            HumanMessage(content=(f"Athlete:\n{user_message[:300]}\n\nCoach:\n{coach_reply[:300]}")),
         ]
     )
     return _normalize_title(_to_text(response.content))
@@ -78,7 +71,7 @@ def derive_proactive_thread_title(alert_message: str) -> str:
     if not first_sentence:
         return "Coach Alert"
     if len(first_sentence) > _TITLE_MAX_CHARS:
-        return f"{first_sentence[:_TITLE_MAX_CHARS - 1].rstrip()}..."
+        return f"{first_sentence[: _TITLE_MAX_CHARS - 1].rstrip()}..."
     return first_sentence
 
 

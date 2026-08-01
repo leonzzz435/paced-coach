@@ -52,6 +52,8 @@ class _FakeDb:
 
     async def execute(self, statement, *_args, **_kwargs):
         sql = str(statement)
+        if "pg_advisory_xact_lock" in sql:
+            return _FakeScalarResult(None)
         if "FROM athlete_profiles" in sql:
             return _FakeScalarResult(self.profile)
         if "FROM competitions" in sql:

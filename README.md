@@ -4,17 +4,19 @@ Your season roadmap, next 28 days, and an AI coach that stays with the plan.
 
 Describe your goals, training history, availability, and constraints. paced.coach turns that athlete-declared context into a personal season strategy and a day-by-day execution block, then carries the same context into coach chat.
 
-**No wearable required.** You bring one supported LLM key and the context only you know. Version 2.2.0 is deliberately provider-free: no activity-platform or recovery-device account is connected to the app.
+**No wearable required.** You bring an OpenAI API key and the context only you know. Version 2.2.0 is deliberately provider-free: no activity-platform or recovery-device account is connected to the app.
 
 The complete app runs on your machine by default: Next.js frontend, FastAPI backend, Celery/LangGraph coaching workflows, and local Postgres/Redis. There is no hosted auth, hosted payment, or production deployment requirement.
 
 Not medical advice.
 
+> **Pre-candidate asset notice:** The README images were generated from sanitized fixture data and contain no local account data, but they show the July pre-Head-Coach renderer. They must be recaptured from the sanitized schema-v3 demo before the v2.2.0 candidate is certified.
+
 ![paced.coach local-first AI endurance coach](docs/assets/readme/paced-coach-hero.png)
 
 ## Preview
 
-The screenshots below are generated from the public `/demo` route using sanitized fixture data. They do not read a local database or real athlete account.
+The screenshots below were generated from the public `/demo` route using sanitized fixture data. They do not read a local database or real athlete account.
 
 <p>
   <img src="docs/assets/readme/paced-coach-plan.png" alt="paced.coach generated training plan with season roadmap and 28-day calendar" width="100%" />
@@ -38,7 +40,7 @@ Open the same preview locally at `http://localhost:3000/demo` after `make start`
 - Docker with Docker Compose v2
 - Pixi
 - Node.js 24 and npm
-- One LLM key: `OPENAI_API_KEY` for the default mode, or `ANTHROPIC_API_KEY` with `AI_MODE=anthropic`
+- One OpenAI API key: `OPENAI_API_KEY`
 
 ## Quick Start
 
@@ -50,7 +52,6 @@ cp .env.example .env
 cp web/app/.env.example web/app/.env.local
 
 # Edit .env and set OPENAI_API_KEY.
-# Alternative: set AI_MODE=anthropic and ANTHROPIC_API_KEY instead.
 
 make setup
 make start
@@ -74,7 +75,7 @@ Open:
 5. Read the active plan at `/app/plan`.
 6. Ask questions in `/app/coach`.
 
-No wearable is required for this path. Your supported LLM key plus your declared profile, goals, availability, constraints, and race calendar form the coaching baseline. The coach must not claim recent load, compliance, HRV, sleep, recovery, or readiness trends unless you explicitly provide that information.
+No wearable is required for this path. Your OpenAI API key plus your declared profile, goals, availability, constraints, and race calendar form the coaching baseline. The coach must not claim recent load, compliance, HRV, sleep, recovery, or readiness trends unless you explicitly provide that information.
 
 ## Environment
 
@@ -90,13 +91,6 @@ APP_ENV=local
 DATABASE_NAME=paced_coach
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/paced_coach
 REDIS_URL=redis://localhost:6379/0
-```
-
-Anthropic alternative:
-
-```bash
-ANTHROPIC_API_KEY=...
-AI_MODE=anthropic
 ```
 
 External training-data connectors are intentionally not shipped in v2.2.0. The full plan and coach flow works from declared context alone.
@@ -119,7 +113,7 @@ pixi run python scripts/local_owner_report.py
 
 Fresh installs use `LOCAL_OWNER_KEY=local-owner` as the stable owner key. Existing databases should prefer `LOCAL_OWNER_USER_ID` when there is already training data.
 
-Fresh public installs use one baseline database migration: `001_initial_local_first`. If you already ran a pre-public branch with older migration revisions, back up your database and follow [docs/local-first/data-preservation.md](docs/local-first/data-preservation.md) before running the app.
+Fresh public installs apply the local-first baseline `001_initial_local_first` and then the additive Head Coach checkpoint upgrade `002_head_coach_checkpoints`. If you already ran a pre-public branch with older migration revisions, back up your database and follow [docs/local-first/data-preservation.md](docs/local-first/data-preservation.md) before running the app.
 
 More detail:
 
@@ -162,7 +156,7 @@ pixi run worker-beat
 ```text
 api/                 FastAPI routes, models, migrations, local owner auth
 worker/              Celery app and background plan generation tasks
-services/ai/         LangGraph workflows, prompts, schemas, coach agents
+services/ai/         Shared Head Coach runtime, semantic profiles, artifacts, and evals
 web/app/             Next.js app
 docs/local-first/    Local setup, privacy, and data docs
 agents_docs/         Internal planning and architecture notes

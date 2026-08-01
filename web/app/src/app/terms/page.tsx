@@ -101,7 +101,9 @@ export default function TermsPage() {
         <p>Mandatory consumer protection provisions of your country of residence remain unaffected.</p>
       </section>
 
-      <p className="text-xs text-zinc-500">Last updated: May 31, 2026</p>
+      <p className="text-xs text-zinc-500">
+        Operational draft for external legal review — not legal advice. Last updated: August 1, 2026.
+      </p>
     </PublicPageShell>
   );
 }

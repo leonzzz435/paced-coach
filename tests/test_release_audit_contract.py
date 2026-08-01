@@ -39,13 +39,18 @@ set -euo pipefail
 report_path=""
 target=""
 mode=""
+log_opts=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --report-path)
       report_path="$2"
       shift 2
       ;;
-    --config|--report-format|--log-opts)
+    --config|--report-format)
+      shift 2
+      ;;
+    --log-opts)
+      log_opts="$2"
       shift 2
       ;;
     --redact=*)
@@ -63,6 +68,9 @@ while [[ $# -gt 0 ]]; do
 done
 mkdir -p "$(dirname "$report_path")"
 printf '[]\n' > "$report_path"
+if [[ "$mode" == "git" && "${REQUIRE_FULL_HISTORY:-}" == "1" && "$log_opts" != "--all --full-history" ]]; then
+  exit 8
+fi
 if [[ -f "${FAKE_GITLEAKS_FAIL_MARKER:-}" ]]; then
   printf '[{"RuleID":"synthetic","Secret":"%s"}]\n' "${FAKE_SECRET_VALUE:-hidden}" > "$report_path"
   exit 1
@@ -150,12 +158,71 @@ def test_release_audit_scans_secret_reachable_only_from_another_branch(tmp_path:
     _run(["git", "commit", "-m", "add historical fixture"], cwd=repository)
     _run(["git", "switch", "main"], cwd=repository)
 
+    result = _audit(
+        repository,
+        fake_gitleaks,
+        HISTORY_SECRET_MARKER=secret_marker,
+        REQUIRE_FULL_HISTORY="1",
+    )
+
+    assert result.returncode != 0
+    assert secret_marker not in result.stdout
+    assert secret_marker not in result.stderr
+    assert "history secret scan failed" in result.stdout
+
+
+def test_release_audit_scans_remote_only_branch_and_skips_symbolic_remote_head(tmp_path: Path):
+    repository = _initialize_repository(tmp_path)
+    fake_gitleaks = _write_fake_gitleaks(tmp_path)
+    remote = tmp_path / "remote.git"
+    _run(["git", "init", "--bare", str(remote)], cwd=tmp_path)
+    _run(["git", "remote", "add", "origin", str(remote)], cwd=repository)
+    _run(["git", "push", "-u", "origin", "main"], cwd=repository)
+
+    secret_marker = "historical-secret-on-remote-only-branch"
+    _run(["git", "switch", "-c", "published-secret"], cwd=repository)
+    (repository / "remote-history.txt").write_text(f"token={secret_marker}\n", encoding="utf-8")
+    _run(["git", "add", "remote-history.txt"], cwd=repository)
+    _run(["git", "commit", "-m", "add remote-only historical fixture"], cwd=repository)
+    _run(["git", "push", "origin", "published-secret"], cwd=repository)
+    _run(["git", "switch", "main"], cwd=repository)
+    _run(["git", "branch", "-D", "published-secret"], cwd=repository)
+    _run(["git", "remote", "set-head", "origin", "main"], cwd=repository)
+
     result = _audit(repository, fake_gitleaks, HISTORY_SECRET_MARKER=secret_marker)
 
     assert result.returncode != 0
     assert secret_marker not in result.stdout
     assert secret_marker not in result.stderr
     assert "history secret scan failed" in result.stdout
+    scanned_refs = (repository / ".tmp" / "release-audit" / "scanned-refs.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "refs/remotes/origin/published-secret" in scanned_refs
+    assert "refs/remotes/origin/HEAD" not in scanned_refs
+
+
+def test_release_audit_fails_when_remote_branch_was_never_fetched(tmp_path: Path):
+    repository = _initialize_repository(tmp_path)
+    fake_gitleaks = _write_fake_gitleaks(tmp_path)
+    remote = tmp_path / "remote.git"
+    publisher = tmp_path / "publisher"
+    _run(["git", "init", "--bare", str(remote)], cwd=tmp_path)
+    _run(["git", "remote", "add", "origin", str(remote)], cwd=repository)
+    _run(["git", "push", "-u", "origin", "main"], cwd=repository)
+    _run(["git", "clone", str(remote), str(publisher)], cwd=tmp_path)
+    _run(["git", "config", "user.email", "publisher@example.test"], cwd=publisher)
+    _run(["git", "config", "user.name", "Publisher"], cwd=publisher)
+    _run(["git", "switch", "-c", "unfetched-branch"], cwd=publisher)
+    (publisher / "remote-only.txt").write_text("remote-only\n", encoding="utf-8")
+    _run(["git", "add", "remote-only.txt"], cwd=publisher)
+    _run(["git", "commit", "-m", "remote only"], cwd=publisher)
+    _run(["git", "push", "origin", "unfetched-branch"], cwd=publisher)
+
+    result = _audit(repository, fake_gitleaks)
+
+    assert result.returncode != 0
+    assert "missing or stale" in result.stdout
 
 
 @pytest.mark.parametrize(

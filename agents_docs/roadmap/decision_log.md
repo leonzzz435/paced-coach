@@ -2,6 +2,12 @@
 
 Keep this file short. It should capture durable product and architecture decisions, not day-by-day cleanup history.
 
+## 2026-07-19 — One Head Coach owns coaching decisions end to end
+
+- **Decision:** Route initial planning, plan refreshes, coach chat, weekly recap, daily adaptation, and memory extraction through one shared Head Coach runtime with semantic run profiles. Retire the mandatory provider-shaped expert fan-out, hand-written tool loop, deep-reasoning formatter agents, and legacy generation fallback.
+- **Why:** A single accountable owner preserves context and decision continuity, while `create_agent`, durable LangGraph checkpoints, capability-gated tools, and typed structured output provide the modern execution substrate without replacing model judgment with heuristics.
+- **Implication:** PostgreSQL owns canonical plans and Coach Events; checkpoints own resumable execution; services own validation/idempotency/commit authority; React owns deterministic presentation of model-selected semantic components. Invalid output receives bounded model repair and then fails visibly without a rule-authored coaching fallback.
+
 ## 2026-07-13 — v2.2.0 ships provider-free
 
 - **Decision:** Remove Strava and WHOOP OAuth, import, sync, recap, and public configuration surfaces from the v2.2.0 runtime. Preserve legacy database rows only for non-destructive upgrade compatibility.

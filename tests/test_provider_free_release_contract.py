@@ -1,7 +1,8 @@
-import uuid
-from typing import Any, cast
+from pathlib import Path
 
 import pytest
+
+from services.ai.evals.head_coach_eval import load_eval_suite
 
 
 @pytest.mark.unit
@@ -35,24 +36,40 @@ async def test_coach_registry_never_loads_external_training_providers():
     from api.services.ongoing_tools import build_ongoing_tool_registry
 
     async with build_ongoing_tool_registry(
-        cast("Any", object()),
-        user_id=uuid.uuid4(),
-        require_training_provider=False,
+        object(),  # type: ignore[arg-type]
+        user_id="owner-1",
     ) as registry:
-        assert registry._providers == {}
+        assert registry.registered_tool_names() == {
+            "get_athlete_profile",
+            "get_current_season_plan",
+            "get_current_weekly_plan",
+            "get_upcoming_competitions",
+        }
 
 
 @pytest.mark.unit
-def test_plan_worker_ignores_legacy_provider_credentials():
-    from worker.tasks import _load_training_sources
+def test_local_first_eval_cases_forbid_fabricated_external_evidence():
+    suite = load_eval_suite(Path("tests/fixtures/head_coach_eval_cases.json"))
+    provider_free_cases = {
+        case.scenario_id: case.required_invariants
+        for case in suite.cases
+        if "no_fabricated_provider_evidence" in case.required_invariants
+    }
 
-    sources, source_gaps = _load_training_sources(
-        cast("Any", object()),
-        user_id=uuid.uuid4(),
-        job_id="release-contract",
-        activities_days=30,
-        metrics_days=90,
-    )
-
-    assert sources == {}
-    assert source_gaps == []
+    assert provider_free_cases == {
+        "missed_training_week": [
+            "schema_valid",
+            "athlete_report_used",
+            "no_fabricated_provider_evidence",
+        ],
+        "optional_evidence_unavailable": [
+            "schema_valid",
+            "tool_gap_disclosed",
+            "no_fabricated_provider_evidence",
+        ],
+        "sparse_beginner_first_plan": [
+            "schema_valid",
+            "declared_constraints_preserved",
+            "no_fabricated_provider_evidence",
+        ],
+    }

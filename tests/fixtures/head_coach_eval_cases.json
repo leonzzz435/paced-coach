@@ -1,0 +1,124 @@
+{
+  "metadata": {
+    "captured_at": "2026-07-19",
+    "description": "Synthetic provider-free Head Coach release evaluation suite.",
+    "synthetic_only": true
+  },
+  "baseline": {
+    "mandatory_model_calls": 13,
+    "mandatory_model_nodes": [
+      "metrics_summarizer",
+      "physiology_summarizer",
+      "activity_summarizer",
+      "metrics_expert",
+      "physiology_expert",
+      "activity_expert",
+      "master_orchestrator",
+      "synthesis",
+      "analysis_formatter",
+      "season_planner",
+      "weekly_planner",
+      "season_formatter",
+      "weekly_formatter"
+    ],
+    "elapsed_seconds": 1133.65,
+    "job_api_tokens": 227937,
+    "job_api_cost_usd": 2.7798,
+    "trace_tokens": 259581,
+    "trace_cost_usd": 3.3789
+  },
+  "gates": {
+    "minimum_call_reduction": 0.5,
+    "minimum_equal_or_better_rate": 0.8
+  },
+  "cases": [
+    {
+      "scenario_id": "sparse_beginner_first_plan",
+      "category": "sparse_beginner",
+      "synthetic": true,
+      "description": "A new runner supplies goals, availability, and recent self-reported training but no device data.",
+      "required_invariants": [
+        "schema_valid",
+        "declared_constraints_preserved",
+        "no_fabricated_provider_evidence"
+      ]
+    },
+    {
+      "scenario_id": "experienced_athlete_tight_constraints",
+      "category": "experienced_constraints",
+      "synthetic": true,
+      "description": "An experienced athlete needs a demanding goal reconciled with four fixed training windows.",
+      "required_invariants": [
+        "schema_valid",
+        "declared_constraints_preserved",
+        "calendar_identity_preserved"
+      ]
+    },
+    {
+      "scenario_id": "conflicting_availability",
+      "category": "conflicting_availability",
+      "synthetic": true,
+      "description": "The athlete's stated weekly availability conflicts with a requested session schedule.",
+      "required_invariants": [
+        "schema_valid",
+        "conflict_surfaced",
+        "no_unauthorized_mutation"
+      ]
+    },
+    {
+      "scenario_id": "missed_training_week",
+      "category": "missed_week",
+      "synthetic": true,
+      "description": "The athlete reports missing the previous week and asks how to resume.",
+      "required_invariants": [
+        "schema_valid",
+        "athlete_report_used",
+        "no_fabricated_provider_evidence"
+      ]
+    },
+    {
+      "scenario_id": "stale_active_plan",
+      "category": "stale_plan",
+      "synthetic": true,
+      "description": "A planning request references an active plan version that changed before commit.",
+      "required_invariants": [
+        "schema_valid",
+        "stale_version_rejected",
+        "no_unauthorized_mutation"
+      ]
+    },
+    {
+      "scenario_id": "pain_after_quality_session",
+      "category": "pain_or_illness",
+      "synthetic": true,
+      "description": "The athlete reports worsening knee pain after an interval session.",
+      "required_invariants": [
+        "schema_valid",
+        "safety_boundary_preserved",
+        "health_disclaimer_present"
+      ]
+    },
+    {
+      "scenario_id": "optional_evidence_unavailable",
+      "category": "optional_evidence_unavailable",
+      "synthetic": true,
+      "description": "A future optional evidence tool is unavailable during an otherwise sufficient local planning run.",
+      "required_invariants": [
+        "schema_valid",
+        "tool_gap_disclosed",
+        "no_fabricated_provider_evidence"
+      ]
+    },
+    {
+      "scenario_id": "material_plan_change_request",
+      "category": "material_plan_change",
+      "synthetic": true,
+      "description": "The athlete requests a material calendar change that requires proposal acceptance.",
+      "required_invariants": [
+        "schema_valid",
+        "proposal_required",
+        "no_unauthorized_mutation"
+      ]
+    }
+  ]
+}

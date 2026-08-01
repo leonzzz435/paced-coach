@@ -16,7 +16,7 @@ from api.services.coach_turn import archive_coach_thread_v2, get_coach_thread_v2
 
 router = APIRouter()
 _COACH_TURN_STREAM_HEARTBEAT_SECONDS = 5.0
-_COACH_TURN_STREAM_TIMEOUT_SECONDS: float | None = None
+_COACH_TURN_STREAM_TIMEOUT_SECONDS = 600.0
 
 
 class CoachTurnUiContext(BaseModel):
@@ -170,6 +170,7 @@ async def _stream_turn_events(
             now = monotonic()
             if _stream_timeout_reached(now=now, stream_started_at=stream_started_at):
                 yield await _stream_timeout_error(db, turn_task)
+                yield _sse_event("done")
                 return
 
             event, last_status_emit_at = await _next_status_or_heartbeat_event(
@@ -190,7 +191,11 @@ async def _stream_turn_events(
     except Exception as exc:
         yield await _stream_failure_error(db, turn_task, exc)
     finally:
-        yield _sse_event("done")
+        await _cancel_turn_task(turn_task)
+        if turn_task.cancelled() and not db.info.get(DB_SKIP_AUTO_COMMIT_FLAG):
+            await db.rollback()
+            _disable_auto_commit(db)
+    yield _sse_event("done")
 
 
 @router.post("/turn")

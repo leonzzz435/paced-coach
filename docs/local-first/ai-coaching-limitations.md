@@ -8,7 +8,7 @@ paced.coach is training-support software, not medical care.
 - Generate a season roadmap and a 28-day execution block.
 - Answer plan questions and propose adaptations.
 
-No wearable is required. A supported LLM key plus athlete-declared training history, goals, availability, constraints, and feedback can support a specific, useful plan. Version 2.2.0 does not connect to external training-data providers.
+No wearable is required. An OpenAI API key plus athlete-declared training history, goals, availability, constraints, and feedback can support a specific, useful plan. Version 2.2.0 does not connect to external training-data providers.
 
 ## What The Coach Must Not Claim
 
@@ -29,15 +29,15 @@ Consult a qualified professional before making medical, rehabilitation, nutritio
 
 ## LLM Data Boundary
 
-Plan generation and coaching send relevant prompt context to the configured LLM provider. That context can include profile details, goals, constraints, plan content, and coach history.
+Plan generation and coaching send relevant prompt context to OpenAI. That context can include profile details, goals, constraints, plan content, and coach history.
 
-Do not enter information you do not want sent to your configured LLM provider.
+Do not enter information you do not want sent to OpenAI.
 
 ## Local-First Boundary
 
 The default app stores data locally and has no hidden telemetry requirement. External network paths are:
 
-- the configured LLM provider
+- OpenAI API calls
 - LangSmith, if `LANGSMITH_API_KEY` is configured
 
 Leave LangSmith unset if you do not want the optional tracing path.

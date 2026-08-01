@@ -37,7 +37,6 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/${DATABASE_NAME:-paced_coach}
       REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODE: ${AI_MODE:-cost_effective}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-paced_coach_local}
@@ -68,7 +67,6 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/${DATABASE_NAME:-paced_coach}
       REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODE: ${AI_MODE:-cost_effective}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-paced_coach_local}
@@ -98,7 +96,6 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/${DATABASE_NAME:-paced_coach}
       REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODE: ${AI_MODE:-cost_effective}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-paced_coach_local}

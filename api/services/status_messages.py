@@ -1,63 +1,39 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 ProgressStepStatus = Literal["pending", "active", "completed"]
 
 TOOL_STATUS_MESSAGES: dict[str, str] = {
-    "get_training_snapshot": "Checking your current training snapshot...",
-    "get_recent_activities": "Reviewing your recent activities...",
-    "get_activity_detail": "Checking full details of an activity...",
-    "get_training_load_history": "Reviewing your training load history...",
-    "get_recovery_readiness_signals": "Checking recovery and readiness signals...",
-    "get_expert_analysis_summary": "Reviewing your latest analysis results...",
-    "get_expert_output": "Pulling expert insights...",
-    "get_current_analysis": "Loading your current dashboard analysis...",
     "get_current_weekly_plan": "Loading your current weekly plan...",
     "get_current_season_plan": "Loading your season plan...",
     "get_upcoming_competitions": "Checking your upcoming races...",
+    "get_athlete_profile": "Loading your athlete profile...",
 }
 
 NODE_STATUS_MESSAGES: dict[str, str] = {
-    "metrics_summarizer": "Summarizing training metrics...",
-    "physiology_summarizer": "Summarizing physiology data...",
-    "activity_summarizer": "Summarizing recent activities...",
-    "training_data_compaction": "Compacting source context...",
-    "metrics_expert": "Expert analyzing training metrics...",
-    "physiology_expert": "Expert analyzing physiology signals...",
-    "activity_expert": "Expert analyzing activity patterns...",
-    "master_orchestrator": "Coordinating analysis results...",
-    "synthesis": "Synthesizing findings...",
-    "plot_resolution": "Preparing visualizations...",
-    "analysis_formatter": "Formatting analysis report...",
-    "season_planner": "Planning your season...",
-    "data_integration": "Integrating data for weekly planning...",
-    "weekly_planner": "Building your weekly plan...",
-    "season_formatter": "Formatting season plan...",
-    "weekly_formatter": "Formatting weekly plan...",
-    "finalize": "Finalizing results...",
+    "head_coach_understanding_context": "Understanding your goals and constraints...",
+    "head_coach_designing_strategy": "Designing your season strategy...",
+    "head_coach_reviewing_constraints": "Reviewing the plan against your constraints...",
+    "head_coach_awaiting_input": "Waiting for one important answer from you...",
+    "head_coach_building_execution_block": "Building your next 28 days...",
+    "head_coach_saving_plan": "Saving your coaching plan...",
 }
 
-ANALYSIS_PROGRESS_NODE_ORDER: list[str] = [
-    "metrics_summarizer",
-    "physiology_summarizer",
-    "activity_summarizer",
-    "training_data_compaction",
-    "metrics_expert",
-    "physiology_expert",
-    "activity_expert",
-    "master_orchestrator",
-    "synthesis",
-    "plot_resolution",
-    "analysis_formatter",
-    "season_planner",
-    "data_integration",
-    "weekly_planner",
-    "season_formatter",
-    "weekly_formatter",
-    "finalize",
+HEAD_COACH_PROGRESS_NODE_ORDER: list[str] = [
+    "head_coach_understanding_context",
+    "head_coach_designing_strategy",
+    "head_coach_reviewing_constraints",
+    "head_coach_awaiting_input",
+    "head_coach_building_execution_block",
+    "head_coach_saving_plan",
 ]
+
+
+def _progress_node_order(progress_steps: list[dict[str, Any]] | None) -> list[str]:
+    del progress_steps
+    return HEAD_COACH_PROGRESS_NODE_ORDER
 
 
 def _try_parse_iso_date(raw_value: object) -> datetime | None:
@@ -91,10 +67,6 @@ def _render_date_range_label(args: dict[str, Any] | None) -> str | None:
 
 
 def tool_status_message(tool_name: str, args: dict[str, Any] | None = None) -> str:
-    if tool_name == "get_recent_activities":
-        date_range_label = _render_date_range_label(args)
-        if date_range_label:
-            return f"Reviewing your activities from {date_range_label}..."
     return TOOL_STATUS_MESSAGES.get(tool_name, "Reviewing your training context...")
 
 
@@ -105,7 +77,8 @@ def node_status_message(node_name: str) -> str:
 def normalize_analysis_progress_steps(progress_steps: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     by_node: dict[str, dict[str, Any]] = {}
     extra_steps: list[dict[str, Any]] = []
-    known_nodes = set(ANALYSIS_PROGRESS_NODE_ORDER)
+    node_order = _progress_node_order(progress_steps)
+    known_nodes = set(node_order)
 
     for raw_step in progress_steps or []:
         node_name = str(raw_step.get("node", "")).strip()
@@ -146,13 +119,15 @@ def normalize_analysis_progress_steps(progress_steps: list[dict[str, Any]] | Non
                 "status": "pending",
             },
         )
-        for node_name in ANALYSIS_PROGRESS_NODE_ORDER
+        for node_name in node_order
     ]
     return ordered_steps + extra_steps
 
 
-def initial_analysis_progress_steps() -> list[dict[str, Any]]:
-    return normalize_analysis_progress_steps(None)
+def initial_head_coach_progress_steps() -> list[dict[str, Any]]:
+    return normalize_analysis_progress_steps(
+        [{"node": node, "status": "pending"} for node in HEAD_COACH_PROGRESS_NODE_ORDER]
+    )
 
 
 def mark_analysis_progress_step_started(
@@ -184,36 +159,6 @@ def mark_analysis_progress_step_started(
     return current_steps, str(target_step["label"])
 
 
-def mark_analysis_progress_step_completed(
-    progress_steps: list[dict[str, Any]] | None,
-    *,
-    node_name: str,
-    timestamp: datetime | None = None,
-) -> list[dict[str, Any]]:
-    current_steps = normalize_analysis_progress_steps(progress_steps)
-    now_iso = (timestamp or datetime.now(UTC)).astimezone(UTC).isoformat()
-
-    target_step: dict[str, Any] | None = None
-    for step in current_steps:
-        if step["node"] == node_name:
-            target_step = step
-            break
-
-    if target_step is None:
-        target_step = {
-            "node": node_name,
-            "label": node_status_message(node_name),
-            "status": "pending",
-        }
-        current_steps.append(target_step)
-
-    if "started_at" not in target_step:
-        target_step["started_at"] = now_iso
-    target_step["status"] = "completed"
-    target_step["completed_at"] = now_iso
-    return current_steps
-
-
 def complete_active_analysis_progress_steps(
     progress_steps: list[dict[str, Any]] | None,
     *,
@@ -225,38 +170,6 @@ def complete_active_analysis_progress_steps(
         if step["status"] == "active":
             step["status"] = "completed"
             step["completed_at"] = now_iso
-    return current_steps
-
-
-def record_analysis_step_timing(
-    progress_steps: list[dict[str, Any]] | None,
-    *,
-    node_name: str,
-    duration_seconds: float,
-    timestamp: datetime | None = None,
-) -> list[dict[str, Any]]:
-    current_steps = normalize_analysis_progress_steps(progress_steps)
-    completed_at = (timestamp or datetime.now(UTC)).astimezone(UTC)
-    safe_duration_seconds = max(float(duration_seconds), 0.0)
-    started_at = completed_at - timedelta(seconds=safe_duration_seconds)
-
-    target_step: dict[str, Any] | None = None
-    for step in current_steps:
-        if step["node"] == node_name:
-            target_step = step
-            break
-
-    if target_step is None:
-        target_step = {
-            "node": node_name,
-            "label": node_status_message(node_name),
-            "status": "pending",
-        }
-        current_steps.append(target_step)
-
-    target_step["actual_started_at"] = started_at.isoformat()
-    target_step["actual_completed_at"] = completed_at.isoformat()
-    target_step["duration_seconds"] = round(safe_duration_seconds, 3)
     return current_steps
 
 

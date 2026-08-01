@@ -101,7 +101,6 @@ async def test_handle_text_turn_records_turn_run_and_provenance(monkeypatch):
     monkeypatch.setattr(coach_turn, "_resolve_turn_ui_context", AsyncMock(return_value=validated_ui_context))
     monkeypatch.setattr(coach_turn, "sanitize_ops", lambda ops: [])
     monkeypatch.setattr(coach_turn, "maybe_update_thread_memory", AsyncMock())
-    monkeypatch.setattr(coach_turn, "_can_request_full_run", AsyncMock(return_value=False))
     monkeypatch.setattr(
         coach_turn,
         "capture_langsmith_run_costs",

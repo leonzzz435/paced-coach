@@ -38,6 +38,15 @@ Ship `v2.2.0` as a polished athlete-first, local-first AI endurance coach:
 - [x] Run full backend and frontend verification after cleanup.
 - [ ] Complete external legal review before public release or promotion.
 
+### 4) Head Coach Runtime Migration
+
+- [x] Freeze the provider-free 13-call baseline with synthetic quality, safety, trajectory, and cost gates.
+- [x] Define shared Head Coach contracts, runtime context, capability-based tools, and semantic reasoning profiles.
+- [x] Add durable checkpointing after explicit approval for the checkpoint-table migration.
+- [x] Introduce canonical schema-v3 season/execution artifacts, rich semantic React renderers, bounded LLM repair, and schema-safe plan mutations.
+- [x] Ship the provider-free schema-v3 initial-planning slice behind a reversible workflow selector.
+- [x] Converge ongoing coaching surfaces and retire the legacy provider-shaped graph after release gates pass.
+
 ## Not In Scope Now
 
 - Public internet hosting without adding real auth and hardening.

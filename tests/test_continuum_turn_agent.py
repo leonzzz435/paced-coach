@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import inspect
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 
 from services.ai.coach import continuum_turn_agent
 from services.ai.coach.continuum_turn_agent import CoachTurnOutput, run_continuum_coach_turn
@@ -18,75 +19,119 @@ class _FakeTool:
 
 class _FakeToolRegistry:
     def __init__(self):
-        self.tools = [_FakeTool(name="get_training_snapshot"), _FakeTool(name="get_recent_activities")]
+        self.tools = [_FakeTool(name="get_athlete_profile"), _FakeTool(name="get_current_weekly_plan")]
+        self.allowed_tool_names: set[str] | None = None
 
-    def create_langchain_tools(self) -> list:
-        return self.tools
+    @classmethod
+    def registered_tool_names(cls) -> set[str]:
+        return {"get_athlete_profile", "get_current_weekly_plan"}
+
+    def create_langchain_tools(self, *, allowed_tool_names=None) -> list:
+        self.allowed_tool_names = set(allowed_tool_names) if allowed_tool_names is not None else None
+        return [tool for tool in self.tools if allowed_tool_names is None or tool.name in allowed_tool_names]
+
+    def get_observability_snapshot(self) -> dict:
+        return {"source_of_truth": "local_athlete_owned"}
 
 
-class _FakeBaseLlm:
-    def __init__(self):
-        self.bound_tools: list | None = None
-        self.structured_schema = None
-        self.structured_llm = object()
+class _FakeAgent:
+    def __init__(self, output: CoachTurnOutput, *, include_tool_call: bool = True):
+        self.output = output
+        self.include_tool_call = include_tool_call
+        self.stream_calls: list[dict[str, object]] = []
 
-    def bind_tools(self, tools: list):
-        self.bound_tools = tools
-        return self
+    async def astream(self, agent_input, *, config, stream_mode):
+        self.stream_calls.append({"input": agent_input, "config": config, "stream_mode": stream_mode})
+        if self.include_tool_call:
+            yield {
+                "model": {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "get_athlete_profile",
+                                    "args": {},
+                                    "id": "call-1",
+                                    "type": "tool_call",
+                                }
+                            ],
+                        )
+                    ]
+                }
+            }
+            yield {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content='{"memory_summary":"consistent athlete"}',
+                            tool_call_id="call-1",
+                            name="get_athlete_profile",
+                        )
+                    ]
+                }
+            }
+        yield {
+            "model": {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "CoachTurnOutput",
+                                "args": self.output.model_dump(mode="json"),
+                                "id": "structured-1",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content="Returning structured response: CoachTurnOutput",
+                        tool_call_id="structured-1",
+                        name="CoachTurnOutput",
+                    ),
+                ],
+                "structured_response": self.output,
+            }
+        }
 
-    def with_structured_output(self, schema, **_kwargs):
-        self.structured_schema = schema
-        return self.structured_llm
+
+def _output(message: str) -> CoachTurnOutput:
+    return CoachTurnOutput(
+        assistant_message=message,
+        proposal_ops=[],
+        requests_full_run=False,
+        full_run_reason=None,
+        safety_flags=[],
+        requires_medical_disclaimer=False,
+    )
+
+
+def test_coach_turn_output_rejects_incoherent_full_run_request():
+    with pytest.raises(ValueError, match="full_run_reason is required"):
+        CoachTurnOutput(
+            assistant_message="I need a deeper analysis.",
+            requests_full_run=True,
+        )
 
 
 @pytest.mark.asyncio
-async def test_run_continuum_turn_threads_tools_status_and_traces(monkeypatch):
-    fake_base_llm = _FakeBaseLlm()
+async def test_run_continuum_turn_uses_head_coach_agent_policy_and_projects_standard_tool_events(monkeypatch):
     fake_registry = _FakeToolRegistry()
+    fake_agent = _FakeAgent(_output("Keep Thursday easy and reassess Friday."))
     emitted_statuses: list[dict[str, object]] = []
-    helper_calls: list[dict[str, object]] = []
+    factory_calls: list[dict[str, Any]] = []
 
-    def _fake_get_llm(_role):
-        return fake_base_llm
+    def _fake_build_head_coach_agent(**kwargs):
+        factory_calls.append(kwargs)
+        return fake_agent
 
-    async def _fake_handle_tool_calling_in_node(**kwargs):
-        helper_calls.append(kwargs)
-        collector = kwargs.get("tool_trace_collector")
-        if callable(collector):
-            collector(
-                {
-                    "tool_name": "get_training_snapshot",
-                    "args": {"days": 7},
-                    "result_preview": '{"sessions_7d": 5}',
-                    "char_len": 19,
-                    "truncated": False,
-                }
-            )
-        status_emitter = kwargs.get("status_emitter")
-        if callable(status_emitter):
-            maybe_result = status_emitter({"step": "thinking", "message": "Thinking through the next best step..."})
-            if inspect.isawaitable(maybe_result):
-                await maybe_result
-        return CoachTurnOutput(
-            assistant_message="Keep Thursday easy and reassess Friday.",
-            proposal_ops=[],
-            requests_full_run=False,
-            full_run_reason=None,
-            safety_flags=[],
-            requires_medical_disclaimer=False,
-        )
-
-    async def _fake_retry_with_backoff(call, *_args):
-        return await call()
-
-    monkeypatch.setattr(continuum_turn_agent.ModelSelector, "get_llm", _fake_get_llm)
-    monkeypatch.setattr(continuum_turn_agent, "handle_tool_calling_in_node", _fake_handle_tool_calling_in_node)
-    monkeypatch.setattr(continuum_turn_agent, "retry_with_backoff", _fake_retry_with_backoff)
+    monkeypatch.setattr(continuum_turn_agent, "build_head_coach_agent", _fake_build_head_coach_agent)
     monkeypatch.setattr(continuum_turn_agent, "_start_root_turn_trace", lambda **_kwargs: None)
 
     execution = await run_continuum_coach_turn(
         user_message="How was my week?",
-        context_pack={"mode": "coach_chat"},
+        context_pack={"mode": "coach_chat", "tool_observability": {"source_of_truth": "local_athlete_owned"}},
         tool_registry=fake_registry,
         thread_id="thread-1",
         user_id="user-1",
@@ -94,26 +139,35 @@ async def test_run_continuum_turn_threads_tools_status_and_traces(monkeypatch):
     )
 
     assert execution.output.assistant_message.startswith("Keep Thursday easy")
-    assert len(execution.tool_traces) == 1
-    assert execution.tool_traces[0]["tool_name"] == "get_training_snapshot"
+    assert execution.tool_traces == [
+        {
+            "tool_name": "get_athlete_profile",
+            "args": {},
+            "result_preview": '{"memory_summary":"consistent athlete"}',
+            "char_len": 39,
+            "truncated": False,
+        }
+    ]
+    assert fake_registry.allowed_tool_names == {"get_athlete_profile", "get_current_weekly_plan"}
 
-    assert fake_base_llm.bound_tools == fake_registry.tools
-    assert fake_base_llm.structured_schema is continuum_turn_agent.CoachTurnOutput
-
-    assert len(helper_calls) == 1
-    helper_call = helper_calls[0]
-    assert helper_call["tools"] == fake_registry.tools
-    assert helper_call["final_output_llm"] is fake_base_llm.structured_llm
-    assert callable(helper_call["status_emitter"])
-    assert getattr(helper_call["status_emitter"], "__self__", None) is emitted_statuses
-    assert any(status["step"] == "thinking" for status in emitted_statuses)
+    factory_call = factory_calls[0]
+    assert factory_call["profile_name"] is continuum_turn_agent.RunProfileName.COACH_TURN
+    assert factory_call["response_schema"] is CoachTurnOutput
+    assert factory_call["tools"] == fake_registry.tools
+    assert "Coaching Lens" in factory_call["task_instructions"]
+    assert fake_agent.stream_calls[0]["stream_mode"] == "updates"
+    assert [status["step"] for status in emitted_statuses] == [
+        "thinking",
+        "tool_call_start",
+        "tool_call_end",
+    ]
     assert execution.trace_metadata is None
 
 
 @pytest.mark.asyncio
 async def test_run_continuum_turn_exposes_root_trace_metadata(monkeypatch):
-    fake_base_llm = _FakeBaseLlm()
     fake_registry = _FakeToolRegistry()
+    fake_agent = _FakeAgent(_output("Treat this as fatigue, not lost fitness."), include_tool_call=False)
     root_run_id = uuid4()
     trace_id = uuid4()
     finished_runs: list[dict[str, object]] = []
@@ -125,25 +179,6 @@ async def test_run_continuum_turn_exposes_root_trace_metadata(monkeypatch):
             self.trace_id = trace_id
             self.session_name = "paced_coach"
 
-        def add_event(self, _event):
-            return None
-
-    def _fake_get_llm(_role):
-        return fake_base_llm
-
-    async def _fake_handle_tool_calling_in_node(**_kwargs):
-        return CoachTurnOutput(
-            assistant_message="Treat this as fatigue, not lost fitness.",
-            proposal_ops=[],
-            requests_full_run=False,
-            full_run_reason=None,
-            safety_flags=[],
-            requires_medical_disclaimer=False,
-        )
-
-    async def _fake_retry_with_backoff(call, *_args):
-        return await call()
-
     @contextmanager
     def _fake_tracing_context(**kwargs):
         tracing_context_calls.append(kwargs)
@@ -152,9 +187,7 @@ async def test_run_continuum_turn_exposes_root_trace_metadata(monkeypatch):
     def _fake_finish_root_turn_trace(root_run, **kwargs):
         finished_runs.append({"root_run": root_run, **kwargs})
 
-    monkeypatch.setattr(continuum_turn_agent.ModelSelector, "get_llm", _fake_get_llm)
-    monkeypatch.setattr(continuum_turn_agent, "handle_tool_calling_in_node", _fake_handle_tool_calling_in_node)
-    monkeypatch.setattr(continuum_turn_agent, "retry_with_backoff", _fake_retry_with_backoff)
+    monkeypatch.setattr(continuum_turn_agent, "build_head_coach_agent", lambda **_kwargs: fake_agent)
     monkeypatch.setattr(continuum_turn_agent, "_start_root_turn_trace", lambda **_kwargs: _FakeRootRun())
     monkeypatch.setattr(continuum_turn_agent, "_finish_root_turn_trace", _fake_finish_root_turn_trace)
     monkeypatch.setattr(continuum_turn_agent, "tracing_context", _fake_tracing_context)

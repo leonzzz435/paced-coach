@@ -9,9 +9,18 @@ The local app stores data in your local Postgres database:
 - generated plans
 - coach conversations
 - jobs and outputs
+- LangGraph Head Coach checkpoints used to pause or resume in-progress runs
 - legacy connector records when upgrading an older development database
 
 Docker Compose persists Postgres in the `postgres_data` volume.
+
+### Head Coach Checkpoint Content And Retention
+
+Head Coach checkpoints are local execution state, not a second source of truth. They can contain the working context needed to resume a run, including athlete-declared profile and goal context, plan drafts, model messages, tool results, and clarification state. They are stored in the local Postgres `checkpoint_*` tables alongside the app database; they are not stored in Redis or a hosted paced.coach service.
+
+Checkpoints for completed, failed, or cancelled runs are retained for a terminal debugging window of seven days by default and then removed by scheduled cleanup. `HEAD_COACH_CHECKPOINT_RETENTION_DAYS` can configure that window from 1 to 90 days. In-progress or awaiting-input checkpoints remain available so the run can resume.
+
+The protected local privacy reset deletes every checkpoint payload row whose owner-scoped thread belongs to the local owner. It also deletes the owner's profile, plans, jobs, coach conversations, and related app data, while preserving only the technical local-owner row so an explicitly configured `LOCAL_OWNER_USER_ID` does not become invalid.
 
 ## Do Not Accidentally Delete Data
 
@@ -42,9 +51,9 @@ Version 2.2.0 does not read, refresh, transmit, or expose external training-prov
 
 ## LLM Data Sharing
 
-Plan generation and coaching send relevant prompt context to the configured LLM provider. This can include profile details, goals, constraints, plan content, and coach history.
+Plan generation and coaching send relevant prompt context to OpenAI. This can include profile details, goals, constraints, plan content, and coach history.
 
-Do not enter private data that you do not want sent to your configured LLM provider.
+Do not enter private data that you do not want sent to OpenAI.
 
 ## Tracing
 

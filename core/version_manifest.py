@@ -4,9 +4,10 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$")
 
@@ -53,6 +54,7 @@ class Components(BaseModel):
 
 class UiSchemaCompatibility(BaseModel):
     supported_versions: list[int]
+    supported_versions_by_kind: dict[Literal["analysis", "season", "weekly"], list[int]]
     default_version: int = Field(ge=1)
 
     @field_validator("supported_versions")
@@ -71,6 +73,17 @@ class UiSchemaCompatibility(BaseModel):
         if supported_versions and value not in supported_versions:
             raise ValueError("default_version must be included in supported_versions")
         return value
+
+    @model_validator(mode="after")
+    def validate_kind_support(self) -> UiSchemaCompatibility:
+        expected_kinds = {"analysis", "season", "weekly"}
+        if set(self.supported_versions_by_kind) != expected_kinds:
+            raise ValueError("supported_versions_by_kind must define analysis, season, and weekly")
+        globally_supported = set(self.supported_versions)
+        for kind, versions in self.supported_versions_by_kind.items():
+            if not versions or any(version not in globally_supported for version in versions):
+                raise ValueError(f"{kind} schema versions must be a non-empty subset of supported_versions")
+        return self
 
 
 class Compatibility(BaseModel):
@@ -117,3 +130,7 @@ def get_supported_schema_versions() -> list[int]:
 
 def get_default_schema_version() -> int:
     return get_version_manifest().compatibility.ui_schema.default_version
+
+
+def get_supported_schema_versions_for_kind(kind: Literal["analysis", "season", "weekly"]) -> list[int]:
+    return get_version_manifest().compatibility.ui_schema.supported_versions_by_kind[kind]

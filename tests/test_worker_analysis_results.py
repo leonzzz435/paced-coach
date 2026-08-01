@@ -61,7 +61,7 @@ def _fake_workflow_result() -> dict:
             "execution_time_seconds": 123.4,
             "total_cost_usd": 0.0,
             "total_tokens": 0,
-            "node_timings_seconds": {"analysis_formatter": 91.4},
+            "node_timings_seconds": {"head_coach_designing_strategy": 91.4},
         },
     }
 
@@ -210,128 +210,6 @@ def _build_fake_session(
     return fake_session
 
 
-def test_run_override_contexts_propagate_planning_notes_to_experts_and_planners():
-    os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-    os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-
-    from worker.tasks import _build_run_override_contexts
-
-    analysis_context, planning_context = _build_run_override_contexts(
-        {
-            "analysis_notes": "Legs feel stale.",
-            "planning_notes": "Add one playful hill challenge each week.",
-            "temporary_constraints": "No gym access.",
-        }
-    )
-
-    assert "Run overrides (analysis focus)" in analysis_context
-    assert "Custom planning instructions for downstream planner fields" in analysis_context
-    assert "Add one playful hill challenge each week." in analysis_context
-    assert "`for_season_planner` and `for_weekly_planner`" in analysis_context
-    assert "Custom planning instructions for this run" in planning_context
-    assert "must preserve unless unsafe" in planning_context
-    assert "Temporary constraints for this run (must constrain analysis and planning)" in analysis_context
-    assert "Temporary constraints for this run (must constrain analysis and planning)" in planning_context
-
-
-def test_worker_serializes_plan_blocks_into_job_result():
-    os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-    os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    job_id = uuid.uuid4()
-    fake_job = _make_fake_job(job_id)
-    fake_strava_creds = _make_fake_strava_credentials(fake_job.user_id)
-
-    fake_active_analysis = types.SimpleNamespace(
-        version=1,
-        analysis_data=None,
-        expert_context=None,
-        source_job_id=None,
-    )
-    fake_active_season = types.SimpleNamespace(
-        version=1,
-        plan_data=None,
-        source_job_id=None,
-    )
-    fake_active_weekly = types.SimpleNamespace(
-        version=1,
-        plan_data=None,
-        source_job_id=None,
-    )
-    fake_session = _build_fake_session(
-        fake_job=fake_job,
-        fake_strava_creds=fake_strava_creds,
-        fake_active_analysis=fake_active_analysis,
-        fake_active_season=fake_active_season,
-        fake_active_weekly=fake_active_weekly,
-    )
-
-    from worker.tasks import run_analysis_task
-
-    def fake_asyncio_run(coro):
-        if asyncio.iscoroutine(coro):
-            coro.close()
-        return _fake_workflow_result()
-
-    with patch("worker.tasks.get_sync_session", return_value=fake_session):
-        with patch("worker.tasks.asyncio.run", side_effect=fake_asyncio_run):
-            run_analysis_task(str(job_id))
-
-    assert fake_job.status == JobStatus.COMPLETED.value
-    assert isinstance(fake_job.result, dict)
-    assert fake_job.result["analysis_blocks"]["analysis_id"] == "analysis_1"
-    assert fake_job.result["weekly_plan_blocks"]["plan_id"] == "weekly_1"
-    assert fake_job.result["season_plan_blocks"]["plan_id"] == "season_1"
-    assert fake_job.result["execution_metadata"]["node_timings_seconds"] == {"analysis_formatter": 91.4}
-    assert "planning_html" not in fake_job.result
-
-    assert fake_active_analysis.version == 2
-    assert fake_active_season.version == 2
-    assert fake_active_weekly.version == 2
-    assert fake_active_analysis.analysis_data == {"type": "analysis", "analysis_id": "analysis_1", "version": 2}
-    assert fake_active_season.plan_data == {"type": "season_plan", "plan_id": "season_1", "version": 2}
-    assert fake_active_weekly.plan_data == {"type": "weekly_plan", "plan_id": "weekly_1", "version": 2}
-    assert isinstance(fake_active_analysis.expert_context, dict)
-    assert "metrics_outputs" in fake_active_analysis.expert_context
-
-
-def test_worker_passes_provider_free_transition_context_with_active_weekly_plan_to_workflow():
-    os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-    os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    job_id = uuid.uuid4()
-    fake_job = _make_fake_job(job_id)
-    fake_strava_creds = _make_fake_strava_credentials(fake_job.user_id)
-    fake_active_weekly = _make_fake_active_weekly_plan()
-    fake_session = _build_fake_session(
-        fake_job=fake_job,
-        fake_strava_creds=fake_strava_creds,
-        fake_active_weekly=fake_active_weekly,
-    )
-
-    captured_kwargs = {}
-
-    async def fake_run_complete_analysis_and_planning(**kwargs):
-        captured_kwargs.update(kwargs)
-        return _fake_workflow_result()
-
-    from worker.tasks import run_analysis_task
-
-    with patch("worker.tasks.get_sync_session", return_value=fake_session):
-        with patch(
-            "worker.tasks.run_complete_analysis_and_planning",
-            side_effect=fake_run_complete_analysis_and_planning,
-        ):
-            run_analysis_task(str(job_id))
-
-    assert fake_job.status == JobStatus.COMPLETED.value
-    assert "transition_context" in captured_kwargs
-    assert "No recent executed sessions in the extracted window" in captured_kwargs["transition_context"]
-    assert "Existing Active Weekly Plan" in captured_kwargs["transition_context"]
-    assert "Easy aerobic run" in captured_kwargs["transition_context"]
-    assert "intensity=rest" in captured_kwargs["transition_context"]
-    assert "first 3-7 days" in captured_kwargs["transition_context"]
-    assert captured_kwargs["existing_weekly_plan"] is not None
-
-
 def test_worker_marks_job_failed_on_soft_time_limit(monkeypatch):
     monkeypatch.setenv("ANALYSIS_TASK_TIME_LIMIT_SECONDS", "1800")
     monkeypatch.setenv("ANALYSIS_TASK_SOFT_TIME_LIMIT_SECONDS", "1770")
@@ -344,13 +222,13 @@ def test_worker_marks_job_failed_on_soft_time_limit(monkeypatch):
 
     from worker.tasks import run_analysis_task
 
-    def fake_asyncio_run(coro):
+    def fail_head_coach_run(coro):
         if asyncio.iscoroutine(coro):
             coro.close()
         raise SoftTimeLimitExceeded()
 
     with patch("worker.tasks.get_sync_session", return_value=fake_session):
-        with patch("worker.tasks.asyncio.run", side_effect=fake_asyncio_run):
+        with patch("worker.tasks._run_async_in_worker_loop", side_effect=fail_head_coach_run):
             with pytest.raises(SoftTimeLimitExceeded):
                 run_analysis_task(str(job_id))
 
@@ -365,7 +243,7 @@ def test_worker_formats_openai_insufficient_quota_as_actionable_error():
     error = RuntimeError("Required AI stage failed: OpenAI error code: insufficient_quota")
 
     assert _format_analysis_task_error_message(error) == (
-        "OpenAI API quota exhausted. Add billing credit or configure another supported LLM provider, then retry."
+        "OpenAI API quota exhausted. Add billing credit to the configured OpenAI account, then retry."
     )
 
 

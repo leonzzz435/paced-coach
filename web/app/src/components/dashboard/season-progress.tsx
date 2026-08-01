@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { buildSeasonProgressState } from "@/lib/season-progress";
+import type { SeasonPlanV3 } from "@/components/plan-viewer/types";
 import type { UiSeasonPlan } from "@/lib/types/ui-blocks";
 import "@/components/plan-viewer/components/season-timeline.css";
 
 type Props = {
-    seasonPlan: UiSeasonPlan | undefined;
+    seasonPlan: UiSeasonPlan | SeasonPlanV3 | undefined;
     allowLinks?: boolean;
     hideLink?: boolean;
     nowIso?: string;
@@ -54,7 +55,9 @@ export default function SeasonProgress({
                 <div className="min-w-0">
                     <div className="text-[10px] font-semibold text-[var(--text-muted)]">Season Progress</div>
                     <div className="mt-1 truncate text-sm font-bold text-[var(--text-primary)]">
-                        {seasonPlan.season_summary_line?.trim() || `${seasonPlan.start_date} → ${seasonPlan.end_date}`}
+                        {("summary_markdown" in seasonPlan
+                            ? seasonPlan.summary_markdown.trim()
+                            : seasonPlan.season_summary_line?.trim()) || `${seasonPlan.start_date} → ${seasonPlan.end_date}`}
                     </div>
                 </div>
                 {!hideLink && allowLinks && (

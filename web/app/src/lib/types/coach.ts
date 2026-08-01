@@ -1,3 +1,4 @@
+import type { WeeklyPlanV3 } from "@/components/plan-viewer/types";
 import type { UiWeeklyPlan } from "@/lib/types/ui-blocks";
 import type { WeeklyRecapResponse } from "@/lib/types/recap";
 import type { CoachQuota } from "@/lib/types/quota";
@@ -29,8 +30,8 @@ export type CoachThreadMessage =
       status: string;
       assistant_message: string;
       ops: Array<Record<string, unknown>>;
-      base_weekly_plan?: UiWeeklyPlan | null;
-      preview_weekly_plan?: UiWeeklyPlan | null;
+      base_weekly_plan?: UiWeeklyPlan | WeeklyPlanV3 | null;
+      preview_weekly_plan?: UiWeeklyPlan | WeeklyPlanV3 | null;
     };
 
 export type CoachThreadResponse = {

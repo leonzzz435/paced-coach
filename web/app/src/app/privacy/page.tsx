@@ -29,6 +29,10 @@ export default function PrivacyPage() {
           <li>Local owner compatibility fields used by the single-user app</li>
           <li>Profile data, athlete context, goals, races, constraints, and training preferences</li>
           <li>Analysis, plan, and coaching outputs generated in the app</li>
+          <li>
+            Local Head Coach checkpoints containing resumable working context, plan drafts, model messages, tool
+            results, and clarification state
+          </li>
           <li>Technical logs created by your local runtime</li>
           <li>Support communications if you choose to contact the maintainer</li>
         </ul>
@@ -60,8 +64,7 @@ export default function PrivacyPage() {
             hosted login.
           </li>
           <li>
-            <strong>AI inference:</strong> the LLM provider configured by the operator. The current default path uses an
-            OpenAI-compatible API key; other configured model providers may receive prompt context when used.
+            <strong>AI inference:</strong> OpenAI receives the prompt context required for plan generation and coaching.
           </li>
           <li>
             <strong>Optional observability:</strong> LangSmith only if <code>LANGSMITH_API_KEY</code> is configured.
@@ -74,8 +77,8 @@ export default function PrivacyPage() {
       <section className="space-y-2 rounded-lg border bg-white p-6 text-sm text-zinc-700">
         <h2 className="text-lg font-medium text-zinc-900">5. AI Transparency</h2>
         <p>
-          Athlete-provided profile, goal, race, constraint, plan, and coach-chat context may be sent to the configured
-          LLM provider to generate analysis, a season roadmap, a 28-day plan, and coaching responses.
+          Athlete-provided profile, goal, race, constraint, plan, and coach-chat context may be sent to OpenAI to
+          generate analysis, a season roadmap, a 28-day plan, and coaching responses.
         </p>
         <p>
           Version 2.2.0 does not connect to external activity or recovery-data providers. It must not present missing
@@ -103,8 +106,13 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-1 pl-5">
           <li>Local content data remains in your local Postgres database until you delete or reset it.</li>
           <li>
-            In local mode, the privacy reset removes user-scoped app data and legacy connector rows while preserving the
-            technical local owner row.
+            Checkpoints for completed, failed, or cancelled Head Coach runs remain in local Postgres for seven days by
+            default, then scheduled cleanup removes them. In-progress and awaiting-input checkpoints remain available
+            so the run can resume.
+          </li>
+          <li>
+            In local mode, the privacy reset removes user-scoped app data, owner-scoped checkpoint payloads, and legacy
+            connector rows while preserving the technical local owner row.
           </li>
           <li>Legal retention exceptions may apply where required by law.</li>
           <li>Backup copies may continue to contain historical snapshots until overwritten by the operator.</li>
@@ -146,7 +154,7 @@ export default function PrivacyPage() {
         </p>
       </section>
 
-      <p className="text-xs text-zinc-500">Last updated: May 31, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — last updated: August 1, 2026</p>
     </PublicPageShell>
   );
 }

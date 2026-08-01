@@ -14,20 +14,19 @@ pre-commit = ">=4.3.0,<5"
 [pypi-dependencies]
 # Install the project itself in editable mode
 paced-coach = { path = ".", editable = true }
-anthropic = ">=0.97.0, <0.98"
 pydantic = ">=2.12, <3"
 pydantic-settings = ">=2.0, <3"
 requests = ">=2.32.0, <3"
 langchain = ">=1.0.0, <2"
 langchain-openai = ">=1.0.0, <2"
-langchain-anthropic = ">=1.4.3, <2"
 langchain-community = ">=0.4, <0.5"
 langchain-core = ">=1.0.0, <2"
 langgraph = ">=1.0.0, <2"
+langgraph-checkpoint-postgres = "==3.1.0"
+psycopg = { version = ">=3.3.0, <4", extras = ["binary", "pool"] }
 langsmith = ">=0.4.37, <0.5"
 numpy = ">=2.3.4, <3"
 pandas = ">=2.3.3, <3"
-plotly = ">=6.3.1, <7"
 python-dotenv = ">=1.1.1, <2"
 setuptools = "*"
 pytest = ">=8.4.2, <9"
@@ -72,7 +71,6 @@ dead-code = "vulture --config vulture.toml"
 dead-code-all = "vulture --config vulture.toml --min-confidence 60"
 dead-code-verbose = "vulture --config vulture.toml --verbose"
 
-seed-active-plans = "PYTHONPATH=. python cli/seed_active_plans.py"
 
 # Web API (Phase 2)
 api = "uvicorn api.main:app --reload --host 127.0.0.1 --port 8000"

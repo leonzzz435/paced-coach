@@ -9,6 +9,7 @@ import SeasonProgress from "@/components/dashboard/season-progress";
 import StatusGauges from "@/components/dashboard/status-gauges";
 import TodayMission from "@/components/dashboard/today-mission";
 import WeekStrip from "@/components/dashboard/week-strip";
+import { toDashboardWeeklyPlan } from "@/lib/dashboard-plan";
 import type { DashboardStateResponse } from "@/lib/types/dashboard";
 
 type Props = {
@@ -97,7 +98,7 @@ export default function DashboardClient({ initialState }: Props) {
   const coachSurface = dashboardState.coach_surface;
   const statusSurface = dashboardState.status_surface;
   const seasonPlan = dashboardState.season?.season_plan;
-  const weeklyPlan = dashboardState.weekly?.weekly_plan;
+  const weeklyPlan = toDashboardWeeklyPlan(dashboardState.weekly?.weekly_plan);
 
   const visibleProposalBanner = useMemo(() => {
     const banner = dashboardState.pending_proposal_banner;
@@ -123,10 +124,11 @@ export default function DashboardClient({ initialState }: Props) {
         <div className="flex flex-col lg:col-span-3 lg:row-start-2 lg:overflow-hidden">
           {weeklyPlan ? (
             <TodayMission
-              weeklyPlan={weeklyPlan}
+              weeklyPlan={dashboardState.weekly?.weekly_plan ?? weeklyPlan}
               warnings={dashboardState.today_mission.warnings}
               dayOverride={dashboardState.today_mission.day_override ?? undefined}
               dailySyncCompleted={false}
+              nowIso={dashboardState.athlete_time.now_local_iso}
             />
           ) : (
             <FirstRunPanel state={dashboardState.first_run} />

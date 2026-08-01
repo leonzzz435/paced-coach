@@ -3,9 +3,11 @@ import json
 import os
 import uuid
 from datetime import datetime
+from typing import Any, cast
 
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -313,6 +315,40 @@ def test_coach_turn_route_streams_sse_timeout(monkeypatch):
     assert isinstance(error_payload, dict)
     assert error_payload["status_code"] == 504
     assert error_payload["detail"] == "Coach turn timed out while generating a response"
+    assert db.commit_calls == 0
+    assert db.rollback_calls == 1
+    assert db.info.get(deps_module.DB_SKIP_AUTO_COMMIT_FLAG) is True
+
+
+@pytest.mark.asyncio
+async def test_closing_coach_stream_cancels_turn_and_rolls_back(monkeypatch):
+    db = _DummyDB()
+    task_cancelled = asyncio.Event()
+
+    async def fake_post_coach_turn(*_args, status_emitter=None, **_kwargs):
+        assert status_emitter is not None
+        await status_emitter({"step": "thinking", "message": "Working"})
+        try:
+            await asyncio.Event().wait()
+        finally:
+            task_cancelled.set()
+
+    monkeypatch.setattr(coach_router, "post_coach_turn", fake_post_coach_turn)
+    stream = coach_router._stream_turn_events(
+        payload=coach_router.CoachTurnRequest(
+            action="text",
+            message="How was my week?",
+            idempotency_key="disconnect-key",
+        ),
+        db=db,  # type: ignore[arg-type]
+        user_id=uuid.uuid4(),
+    )
+
+    first_event = await anext(stream)
+    assert first_event.startswith("event: status")
+    await cast("Any", stream).aclose()
+
+    assert task_cancelled.is_set()
     assert db.commit_calls == 0
     assert db.rollback_calls == 1
     assert db.info.get(deps_module.DB_SKIP_AUTO_COMMIT_FLAG) is True

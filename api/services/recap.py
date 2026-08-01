@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import logging
 import re
 import uuid
@@ -30,56 +29,20 @@ from api.services.coach_event_store import (
     EVENT_RECAP_NARRATIVE,
     append_coach_events,
 )
-from api.services.coach_patch_ops import apply_ops, sanitize_ops
+from api.services.coach_patch_ops import apply_ops, parse_weekly_plan, prepare_ops_for_plan
 from api.services.coach_quota import get_coach_weekly_quota
 from api.services.coach_thread_titles import derive_weekly_recap_thread_title
-from api.services.connected_coaching import assert_connected_coaching_available
 from api.services.full_run_policy import WeeklyRecapAvailability, evaluate_weekly_recap_availability
-from api.services.html_sanitizer import sanitize_html
-from api.services.integration_status import load_integrations_status
 from api.services.local_usage import get_local_usage_context
 from api.services.ongoing_tools import build_ongoing_tool_registry
-from services.ai.langgraph.schemas.ui_blocks import UiHtmlBlock, UiWeeklyPlan
+from services.ai.head_coach.artifacts import ExecutionPlanArtifactV3
+from services.ai.langgraph.schemas.ui_blocks import UiWeeklyPlan
 from services.ai.recap import WeeklyRecapNarrative, generate_weekly_recap_narrative
 
 logger = logging.getLogger(__name__)
 StatusEmitter = Callable[[dict[str, object]], object]
-_HTML_TAG_PATTERN = re.compile(r"<[^>]*>")
 _SENTENCE_BREAK_PATTERN = re.compile(r"[.!?](?=\s|$)")
 _CLAUSE_BREAK_PATTERN = re.compile(r"[,;:](?=\s|$)")
-
-
-def _sanitize_recap_blocks(blocks: list[UiHtmlBlock]) -> list[UiHtmlBlock]:
-    sanitized: list[UiHtmlBlock] = []
-    seen: set[str] = set()
-    for block in blocks:
-        key = block.key
-        if key in seen:
-            suffix = 1
-            while f"{key}-{suffix}" in seen:
-                suffix += 1
-            key = f"{key}-{suffix}"
-        seen.add(key)
-        sanitized.append(
-            block.model_copy(
-                update={
-                    "key": key,
-                    "content_html": sanitize_html(block.content_html),
-                    "tone": block.tone if block.variant == "callout" else None,
-                }
-            )
-        )
-    return sanitized
-
-
-def _sanitize_recap_payload(payload: WeeklyRecapNarrative) -> WeeklyRecapNarrative:
-    return payload.model_copy(
-        update={
-            "this_week_blocks": _sanitize_recap_blocks(payload.this_week_blocks),
-            "looking_ahead_blocks": _sanitize_recap_blocks(payload.looking_ahead_blocks),
-            "optional_proposal_ops": sanitize_ops(payload.optional_proposal_ops),
-        }
-    )
 
 
 def _truncate_preview_text(preview: str, *, max_chars: int) -> str:
@@ -113,14 +76,24 @@ def _truncate_preview_text(preview: str, *, max_chars: int) -> str:
     return f"{candidate.rstrip(' ,;:')}..."
 
 
-def _extract_html_text(content_html: str) -> str:
-    normalized = html.unescape(_HTML_TAG_PATTERN.sub(" ", content_html)).replace("\n", " ")
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
-def _build_html_preview(content_html: str, *, max_chars: int = 180) -> str:
-    preview = _extract_html_text(content_html)
-    return _truncate_preview_text(preview, max_chars=max_chars)
+def _semantic_block_text(block: dict) -> str:
+    for key in ("markdown", "objective_markdown", "summary_markdown"):
+        value = block.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    items = block.get("items")
+    if isinstance(items, list):
+        return "; ".join(
+            str(item.get("label") or "").strip() for item in items if isinstance(item, dict)
+        ).strip("; ")
+    intervals = block.get("intervals")
+    if isinstance(intervals, list):
+        return "; ".join(
+            " ".join(str(row.get(key) or "").strip() for key in ("label", "duration", "prescription")).strip()
+            for row in intervals
+            if isinstance(row, dict)
+        ).strip("; ")
+    return ""
 
 
 def extract_recap_summary_preview(recap_payload: object) -> str | None:
@@ -137,12 +110,12 @@ def extract_recap_summary_preview(recap_payload: object) -> str | None:
         for raw_block in section_blocks:
             if not isinstance(raw_block, dict):
                 continue
-            title = str(raw_block.get("title") or "").strip()
+            title = str(raw_block.get("title") or raw_block.get("label") or "").strip()
             if title:
                 return title
-            content_html = raw_block.get("content_html")
-            if isinstance(content_html, str) and content_html.strip():
-                return _build_html_preview(content_html, max_chars=220)
+            content = _semantic_block_text(raw_block)
+            if content:
+                return _truncate_preview_text(content, max_chars=220)
     return None
 
 
@@ -166,12 +139,12 @@ def extract_recap_action_preview(
         for raw_block in section_blocks:
             if not isinstance(raw_block, dict):
                 continue
-            title = str(raw_block.get("title") or "").strip()
+            title = str(raw_block.get("title") or raw_block.get("label") or "").strip()
             if title and title != normalized_exclude:
                 return title
-            content_html = raw_block.get("content_html")
-            if isinstance(content_html, str) and content_html.strip():
-                preview = _build_html_preview(content_html, max_chars=220)
+            content = _semantic_block_text(raw_block)
+            if content:
+                preview = _truncate_preview_text(content, max_chars=220)
                 if preview and preview != normalized_exclude:
                     return preview
     return None
@@ -314,7 +287,7 @@ async def _prepare_pending_recap_run(
 
 async def _get_active_weekly_plan_for_recap(
     db: AsyncSession, *, user_id: uuid.UUID, run: WeeklyRecapRun
-) -> tuple[ActiveWeeklyPlan, UiWeeklyPlan]:
+) -> tuple[ActiveWeeklyPlan, UiWeeklyPlan | ExecutionPlanArtifactV3]:
     weekly_row = await db.execute(select(ActiveWeeklyPlan).where(ActiveWeeklyPlan.user_id == user_id))
     active_weekly = weekly_row.scalar_one_or_none()
     if not active_weekly:
@@ -323,7 +296,7 @@ async def _get_active_weekly_plan_for_recap(
         db.add(run)
         await db.flush()
         raise HTTPException(status_code=404, detail="No active weekly plan found")
-    return active_weekly, UiWeeklyPlan.model_validate(active_weekly.plan_data)
+    return active_weekly, parse_weekly_plan(active_weekly.plan_data)
 
 
 async def _generate_recap_narrative(
@@ -409,7 +382,7 @@ async def _generate_recap_narrative(
         await db.flush()
         raise
     return (
-        _sanitize_recap_payload(narrative),
+        narrative,
         observability,
         ai_trace.trace_metadata(),
         capture_langsmith_run_costs(ai_trace.trace_metadata()),
@@ -422,19 +395,20 @@ async def _create_optional_recap_proposal(
     user_id: uuid.UUID,
     thread_id: uuid.UUID,
     active_weekly: ActiveWeeklyPlan,
-    current_plan: UiWeeklyPlan,
+    current_plan: UiWeeklyPlan | ExecutionPlanArtifactV3,
     narrative: WeeklyRecapNarrative,
 ) -> tuple[uuid.UUID | None, dict | None, bool]:
     if not narrative.optional_proposal_ops:
         return None, None, False
 
-    preview_plan, changed = apply_ops(current_plan, narrative.optional_proposal_ops)
+    prepared_ops = prepare_ops_for_plan(current_plan, narrative.optional_proposal_ops)
+    preview_plan, changed = apply_ops(current_plan, prepared_ops)
     proposal_row = CoachProposal(
         user_id=user_id,
         thread_id=thread_id,
         weekly_plan_version=active_weekly.version,
         assistant_message="Weekly recap proposes plan adaptations based on this week's execution.",
-        ops={"ops": [op.model_dump(mode="json") for op in narrative.optional_proposal_ops]},
+        ops={"ops": [op.model_dump(mode="json") for op in prepared_ops]},
         origin="weekly_recap",
         status="pending",
     )
@@ -536,7 +510,6 @@ async def execute_recap_turn(
 ) -> tuple[dict, list[CoachEvent]]:
     recap_usage_context = await get_local_usage_context(db, user_id=user_id)
     availability = await evaluate_weekly_recap_availability(db, user_id=user_id)
-    integrations_status = await load_integrations_status(db, user_id=user_id)
 
     if availability.existing_run_id is not None:
         existing_row = await db.execute(
@@ -553,11 +526,8 @@ async def execute_recap_turn(
     if not availability.allowed:
         raise HTTPException(status_code=409, detail=_recap_unavailable_detail(availability))
 
-    assert_connected_coaching_available(
-        feature_enabled=bool(recap_usage_context.effective_plan.weekly_recap_included),
-        integrations_status=integrations_status,
-        locked_message="Weekly recap is not available on this plan.",
-    )
+    if not recap_usage_context.effective_plan.weekly_recap_included:
+        raise HTTPException(status_code=400, detail="Weekly recap is not available on this plan.")
 
     anchor = availability.current_anchor_utc
     if anchor is None or availability.window_start is None or availability.window_end is None:
@@ -643,7 +613,10 @@ async def execute_recap_turn(
             "looking_ahead_blocks": [block.model_dump(mode="json") for block in narrative.looking_ahead_blocks],
         },
         "base_weekly_plan": current_plan.model_dump(mode="json"),
-        "ops": [op.model_dump(mode="json") for op in narrative.optional_proposal_ops],
+        "ops": [
+            op.model_dump(mode="json")
+            for op in prepare_ops_for_plan(current_plan, narrative.optional_proposal_ops)
+        ],
         "preview_weekly_plan": preview_weekly_payload,
         "changed": changed,
     }

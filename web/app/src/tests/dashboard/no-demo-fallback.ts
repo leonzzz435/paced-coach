@@ -31,4 +31,12 @@ function assertNoDemoFallback(relativePath: string): void {
 assertNoDemoFallback("src/app/app/page.tsx");
 assertNoDemoFallback("src/app/app/plan/page.tsx");
 
+const planPageSource = readFileSync(path.join(process.cwd(), "src/app/app/plan/page.tsx"), "utf8");
+assert.match(planPageSource, /\{backendError \? \(/, "backend failure must be the primary plan-page state");
+assert.ok(
+  planPageSource.indexOf("{backendError ? (") < planPageSource.indexOf(": analysis || seasonPlan || weeklyPlan ? ("),
+  "backend failure and the no-plan state must be mutually exclusive",
+);
+assert.doesNotMatch(planPageSource, /Service status/, "plan-page failures must not be appended beneath a fake no-plan state");
+
 console.log("Signed-in dashboard and plan pages do not fall back to demo fixtures.");

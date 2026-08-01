@@ -13,6 +13,7 @@ from api.models.user import Base
 class JobStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
+    AWAITING_INPUT = "awaiting_input"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"

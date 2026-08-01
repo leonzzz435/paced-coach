@@ -3,13 +3,8 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from core.config import AIMode, get_config
-
 
 def required_llm_provider_key_names() -> tuple[str, ...]:
-    config = get_config()
-    if config.ai_mode == AIMode.ANTHROPIC:
-        return ("ANTHROPIC_API_KEY",)
     return ("OPENAI_API_KEY",)
 
 

@@ -29,6 +29,7 @@ def _render_ts(manifest: VersionManifest) -> str:
         f"export const VERSION_MANIFEST = {manifest_json} as const;\n\n"
         "export type VersionManifest = typeof VERSION_MANIFEST;\n\n"
         "export const SUPPORTED_SCHEMA_VERSIONS = VERSION_MANIFEST.compatibility.ui_schema.supported_versions;\n"
+        "export const SUPPORTED_SCHEMA_VERSIONS_BY_KIND = VERSION_MANIFEST.compatibility.ui_schema.supported_versions_by_kind;\n"
         "export const DEFAULT_SCHEMA_VERSION = VERSION_MANIFEST.compatibility.ui_schema.default_version;\n"
     )
 

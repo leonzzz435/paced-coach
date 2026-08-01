@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx src/tests/fixtures/validate-fixtures.ts && tsx src/tests/public/messaging-contract.ts && tsx src/tests/onboarding/no-provider-first-run.ts && tsx src/tests/security/html-snippet-ssr.tsx && tsx src/tests/coach/coach-turn-sse.ts && tsx src/tests/coach/coach-turn-route.ts && tsx src/tests/api/api-timeout.ts && tsx src/tests/plan/plan-api-paths.ts && tsx src/tests/plan/day-display.ts && tsx src/tests/plan/calendar-grid.ts && tsx src/tests/plan/season-progress-time.ts && tsx src/tests/dashboard/no-demo-fallback.ts",
+    "test": "tsx src/tests/fixtures/validate-fixtures.ts && tsx src/tests/public/messaging-contract.ts && tsx src/tests/onboarding/no-provider-first-run.ts && tsx src/tests/security/html-snippet-ssr.tsx && tsx src/tests/security/local-write-origin.ts && tsx src/tests/coach/coach-turn-sse.ts && tsx src/tests/coach/coach-turn-route.ts && tsx src/tests/coach/legacy-recap-blocks.tsx && tsx src/tests/api/api-timeout.ts && tsx src/tests/plan/plan-api-paths.ts && tsx src/tests/plan/day-display.ts && tsx src/tests/plan/calendar-grid.ts && tsx src/tests/plan/season-progress-time.ts && tsx src/tests/plan/schema-v3-rendering.tsx && tsx src/tests/plan/plan-generation-interrupt.tsx && tsx src/tests/dashboard/v3-dashboard-plan.ts && tsx src/tests/dashboard/no-demo-fallback.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

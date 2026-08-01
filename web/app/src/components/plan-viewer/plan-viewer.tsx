@@ -20,14 +20,21 @@ import { toggleDayCompletionAction } from "@/app/actions/plan";
 import type { UiAnalysis, UiDayPlan, UiSeasonPlan, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 import { X, FileText, Map, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import SeasonPlanView from "./season-plan-view";
+import type { SeasonPlanV3, WeeklyPlanV3 } from "./types";
+import { RenderAnalysis, RenderSeasonPlan, RenderWeeklyPlan } from "./versioned/plan-renderer";
 
 type Props = {
     analysis?: UiAnalysis | null;
-    seasonPlan?: UiSeasonPlan | null;
-    weeklyPlan?: UiWeeklyPlan | null;
+    seasonPlan?: UiSeasonPlan | SeasonPlanV3 | null;
+    weeklyPlan?: UiWeeklyPlan | WeeklyPlanV3 | null;
     onAskAboutBlock?: OnAskAboutBlock;
     nowIso?: string;
     publicPreview?: boolean;
+};
+
+type LegacyProps = Omit<Props, "seasonPlan" | "weeklyPlan"> & {
+    seasonPlan?: UiSeasonPlan | null;
+    weeklyPlan?: UiWeeklyPlan | null;
 };
 
 type OverlayPanel = "analysis" | "season";
@@ -43,7 +50,7 @@ function getIntensityColor(intensity?: string | null): string {
     }
 }
 
-export default function PlanViewer({ analysis, seasonPlan, weeklyPlan, onAskAboutBlock, nowIso, publicPreview = false }: Props) {
+function LegacyPlanViewer({ analysis, seasonPlan, weeklyPlan, onAskAboutBlock, nowIso, publicPreview = false }: LegacyProps) {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -570,6 +577,42 @@ export default function PlanViewer({ analysis, seasonPlan, weeklyPlan, onAskAbou
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+export default function PlanViewer(props: Props) {
+    const requiresVersionedDispatch = [props.analysis, props.seasonPlan, props.weeklyPlan]
+        .some((artifact) => artifact != null && artifact.schema_version !== 1);
+    if (!requiresVersionedDispatch) {
+        return <LegacyPlanViewer {...props} seasonPlan={props.seasonPlan as UiSeasonPlan | null | undefined} weeklyPlan={props.weeklyPlan as UiWeeklyPlan | null | undefined} />;
+    }
+
+    return (
+        <div className="space-y-8">
+            {props.weeklyPlan ? (
+                <RenderWeeklyPlan
+                    weeklyPlan={props.weeklyPlan}
+                    onAskAboutBlock={props.onAskAboutBlock}
+                    theme="dark"
+                    mode={props.publicPreview ? "landing" : "full"}
+                    nowIso={props.nowIso}
+                />
+            ) : null}
+            {props.seasonPlan ? (
+                <RenderSeasonPlan
+                    seasonPlan={props.seasonPlan}
+                    onAskAboutBlock={props.onAskAboutBlock}
+                    mode={props.publicPreview ? "landing" : "full"}
+                />
+            ) : null}
+            {props.analysis ? (
+                <RenderAnalysis
+                    analysis={props.analysis}
+                    onAskAboutBlock={props.onAskAboutBlock}
+                    mode={props.publicPreview ? "landing" : "full"}
+                />
+            ) : null}
         </div>
     );
 }

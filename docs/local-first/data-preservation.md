@@ -28,7 +28,7 @@ Use the reported `Owner user id` as:
 LOCAL_OWNER_USER_ID=<users.id from report>
 ```
 
-Then restart the API/web app. Your active season plan, weekly plan, coach threads, competitions, and connected-provider state should resolve through that local owner.
+Then restart the API/web app. Your active season plan, weekly plan, coach threads, and competitions should resolve through that local owner.
 
 ## Backup First
 
@@ -70,9 +70,17 @@ The script runs in one database transaction. If any update fails, the transactio
 
 The script updates `user_id` references only. It does not delete users, plans, provider credentials, jobs, coach threads, or local usage history.
 
-## Schema Baseline Status
+## Schema Migration Status
 
-Fresh public installs use a single Alembic baseline revision: `001_initial_local_first`. New contributors should not need to replay historical private migrations.
+Fresh public installs first create the application schema at `001_initial_local_first`, then apply the additive `002_head_coach_checkpoints` upgrade. Revision `002` adds only LangGraph execution-state tables (`checkpoint_migrations`, `checkpoints`, `checkpoint_blobs`, and `checkpoint_writes`); it does not rewrite existing users, profiles, jobs, competitions, plans, coach threads, or coaching events.
+
+Run both revisions with:
+
+```bash
+pixi run alembic upgrade head
+```
+
+The declared Alembic head is `002_head_coach_checkpoints`.
 
 If you used a pre-public branch before the migration history was squashed, your local database may still contain an older `alembic_version` even though the tables already match the local-first schema. In that case:
 
@@ -86,4 +94,10 @@ DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/paced_coach \
   pixi run alembic stamp --purge 001_initial_local_first
 ```
 
-Then `pixi run alembic upgrade head` should be a no-op. Do not use `stamp --purge` on an unknown database; it only changes Alembic bookkeeping and assumes the schema already matches the app.
+Then run `pixi run alembic upgrade head` to create the additive checkpoint tables from revision `002`. Do not use `stamp --purge` on an unknown database; it only changes Alembic bookkeeping and assumes the revision-001 application schema already matches the app.
+
+## Head Coach Checkpoints
+
+The new checkpoint tables store disposable execution progress so a long-running Head Coach run can pause or resume. Canonical profiles, plans, and Coach Events remain in their existing domain tables. Backups of the Postgres volume include both kinds of data.
+
+Terminal-run checkpoints are normally removed after seven days. The protected local data reset removes checkpoint rows for the local owner together with their profile, plans, jobs, and coaching data while preserving the technical local-owner row.

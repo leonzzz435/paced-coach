@@ -5,13 +5,17 @@ release:
 
 components:
   ui_schema:
-    version: "1.0.0"
-    current_schema_version: 1
+    version: "3.0.0"
+    current_schema_version: 3
   db_schema:
-    version: "1.0.0"
-    alembic_head: "001_initial_local_first"
+    version: "1.1.0"
+    alembic_head: "002_head_coach_checkpoints"
 
 compatibility:
   ui_schema:
-    supported_versions: [1]
+    supported_versions: [1, 3]
+    supported_versions_by_kind:
+      analysis: [1]
+      season: [1, 3]
+      weekly: [1, 3]
     default_version: 1

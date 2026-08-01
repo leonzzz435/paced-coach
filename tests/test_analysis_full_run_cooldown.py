@@ -8,7 +8,6 @@ from fastapi import HTTPException
 
 from api.models.job import JobStatus
 from api.routers import analysis
-from api.services.full_run_policy import FullRunAvailability
 from api.services.local_usage import PlanGenerationAccess
 
 
@@ -50,6 +49,8 @@ class _FakeDb:
 
     async def execute(self, statement, *_args, **_kwargs):
         sql = str(statement)
+        if "pg_advisory_xact_lock" in sql:
+            return _FakeScalarResult(None)
         if "FROM athlete_profiles" in sql:
             return _FakeScalarResult(self.profile)
         if "FROM competitions" in sql:
@@ -90,49 +91,24 @@ class _FakeJobStatusDb:
 
 
 @pytest.mark.asyncio
-async def test_ensure_plan_generation_available_returns_cooldown_when_faster_plan_would_unlock_now(monkeypatch):
-    next_allowed_at = datetime(2026, 3, 21, 8, 0, tzinfo=UTC)
-    free_plan = SimpleNamespace(plan_generation_cooldown_days=28)
-
-    async def _fake_usage_context(*_args, **_kwargs):
-        return SimpleNamespace(has_access=False, effective_plan=free_plan)
-
-    call_count = {"count": 0}
-
-    async def _fake_availability(*_args, **_kwargs):
-        call_count["count"] += 1
-        if call_count["count"] == 1:
-            return FullRunAvailability(
-                allowed=False,
-                last_run_at=datetime(2026, 2, 21, 8, 0, tzinfo=UTC),
-                next_allowed_at=next_allowed_at,
-            )
-        return FullRunAvailability(
-            allowed=True,
-            last_run_at=datetime(2026, 3, 10, 8, 0, tzinfo=UTC),
-            next_allowed_at=None,
-        )
-
-    monkeypatch.setenv("WEB_APP_URL", "https://test.paced.coach")
-    monkeypatch.setattr(
-        "api.services.local_usage.limits.get_settings",
-        lambda: SimpleNamespace(local_usage_dev_bypass=False, web_app_url="https://test.paced.coach"),
-    )
+async def test_ensure_plan_generation_available_allows_repeat_generation(monkeypatch):
     async def _no_active_plan_generation_job(*_args, **_kwargs):
         return None
 
+    prior_run_at = datetime(2026, 3, 21, 8, 0, tzinfo=UTC)
+
+    async def _latest_full_run(*_args, **_kwargs):
+        return prior_run_at
+
     monkeypatch.setattr("api.services.local_usage.limits._find_active_plan_generation_job", _no_active_plan_generation_job)
-    monkeypatch.setattr("api.services.local_usage.limits.get_local_usage_context", _fake_usage_context)
-    monkeypatch.setattr("api.services.local_usage.limits.evaluate_full_run_availability", _fake_availability)
+    monkeypatch.setattr("api.services.local_usage.limits.get_latest_full_run_created_at", _latest_full_run)
 
-    with pytest.raises(HTTPException) as exc:
-        await analysis.ensure_plan_generation_available(
-            object(),  # type: ignore[arg-type]
-            user_id=uuid.uuid4(),
-        )
+    access = await analysis.ensure_plan_generation_available(
+        object(),  # type: ignore[arg-type]
+        user_id=uuid.uuid4(),
+    )
 
-    assert exc.value.status_code == 429
-    assert "Next allowed at" in str(exc.value.detail)
+    assert access.mode == "free"
 
 
 @pytest.mark.asyncio
@@ -162,17 +138,18 @@ async def test_ensure_plan_generation_available_blocks_active_job(monkeypatch):
         )
 
     assert exc.value.status_code == 409
-    assert "already running" in str(exc.value.detail)
+    assert "already active or waiting for your clarification" in str(exc.value.detail)
 
 
 @pytest.mark.asyncio
-async def test_run_analysis_allows_providerless_free_generation(monkeypatch):
+@pytest.mark.parametrize("access_mode", ["free_initial", "free"])
+async def test_run_analysis_routes_every_generation_through_head_coach(monkeypatch, access_mode):
     fake_db = _FakeDb()
     delay_calls: dict[str, object] = {}
 
     async def _fake_plan_generation_access(*_args, **_kwargs):
         return PlanGenerationAccess(
-            mode="free",
+            mode=access_mode,
             usage_context=None,
             initial_draft_claim_source_id=None,
         )
@@ -196,31 +173,10 @@ async def test_run_analysis_allows_providerless_free_generation(monkeypatch):
 
     assert response.job_id == delay_calls["job_id"]
     assert fake_db.job is not None
-    assert fake_db.job.config["_plan_generation_access_mode"] == "free"
+    assert fake_db.job.config["_plan_generation_access_mode"] == access_mode
+    assert fake_db.job.config["_workflow_version"] == "head_coach_v1"
     assert fake_db.job.config["athlete_profile"]["physiology"]["ftp"] == 250
     assert fake_db.job.config["competitions"][0]["name"] == "Test Race"
-
-
-@pytest.mark.asyncio
-async def test_run_analysis_returns_wait_message_when_free_cadence_still_cooling_down(monkeypatch):
-    async def _reject_generation(*_args, **_kwargs):
-        raise HTTPException(
-            status_code=429,
-            detail="Free plan generation is limited to once every 28 days. Next allowed at 2026-04-18T08:00:00+00:00.",
-        )
-
-    monkeypatch.setattr(analysis, "ensure_plan_generation_available", _reject_generation)
-    monkeypatch.setattr(analysis, "has_llm_provider_key", lambda: True)
-
-    with pytest.raises(HTTPException) as exc:
-        await analysis.run_analysis(
-            analysis.AnalysisConfig(),
-            db=object(),  # type: ignore[arg-type]
-            user_id=uuid.uuid4(),
-        )
-
-    assert exc.value.status_code == 429
-    assert "once every 28 days" in str(exc.value.detail)
 
 
 @pytest.mark.asyncio

@@ -65,25 +65,14 @@ Avoid positioning the product as:
 - Add German UI and AI-response support before broader localization.
 - Consider a native wrapper only after mobile usage proves the need.
 
-## Technical Debt Backlog
+## Architecture Baseline
 
-### Plan-First Migration
+The provider-shaped `metrics / physiology / activity` fan-out and hand-written agent loop have been retired. Current generation and ongoing coaching use one Head Coach built with LangChain `create_agent`, semantic run profiles, capability-gated tools, durable LangGraph execution, canonical schema-v3 artifacts, and proposal-driven mutation boundaries.
 
-The current analysis/planning graph still carries some `metrics / physiology / activity` workflow shape.
+Near-term architecture work should focus on measured quality rather than adding orchestration layers:
 
-Target:
-
-- provider-neutral sufficiency gating,
-- canonical activity history,
-- plan-first orchestration,
-- proposal-driven execution coaching.
-
-### LangGraph Agent Loop
-
-`handle_tool_calling_in_node` is a hand-rolled agentic loop. It works, but tool executions are not ideal for tracing.
-
-Target:
-
-- Evaluate LangGraph's `create_react_agent` for recap and coach agents.
-- Keep structured-output validation after the agent loop.
-- Preserve existing behavior until replacement tests are strong.
+- expand provider-free trajectory, safety, and adaptation eval cases;
+- calibrate reasoning profiles from quality/latency evidence;
+- add a specialist or Deep Agents research path only when an eval demonstrates material value;
+- keep optional provider evidence read-only and absent from the tool surface when disconnected;
+- retain v1 renderers solely for historical local artifacts while all new generation stays on v3.

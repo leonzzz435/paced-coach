@@ -71,6 +71,7 @@ async def test_delete_account_removes_coach_event_dependents_before_events():
 
     await _delete_local_account_records(db=fake_db, user_id=uuid.uuid4())  # type: ignore[arg-type]
 
+    checkpoint_writes_index = _statement_index(fake_db.statements, "DELETE FROM checkpoint_writes")
     coach_turn_runs_index = _statement_index(fake_db.statements, "DELETE FROM coach_turn_runs")
     ai_run_costs_index = _statement_index(fake_db.statements, "DELETE FROM ai_run_costs")
     daily_update_runs_index = _statement_index(fake_db.statements, "DELETE FROM daily_update_runs")
@@ -78,6 +79,7 @@ async def test_delete_account_removes_coach_event_dependents_before_events():
     coach_events_index = _statement_index(fake_db.statements, "DELETE FROM coach_events")
     coach_threads_index = _statement_index(fake_db.statements, "DELETE FROM coach_threads")
 
+    assert checkpoint_writes_index < coach_turn_runs_index
     assert ai_run_costs_index < coach_events_index
     assert coach_turn_runs_index < coach_events_index
     assert daily_update_runs_index < coach_events_index

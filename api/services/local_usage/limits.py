@@ -14,10 +14,8 @@ from api.config import get_settings
 from api.models.active_weekly_plan import ActiveWeeklyPlan
 from api.models.job import AnalysisJob, JobStatus
 from api.models.local_usage import LocalUsageEvent, LocalUsagePlanOverride
-from api.services.full_run_policy import (
-    evaluate_full_run_availability,
-    get_latest_full_run_created_at,
-)
+from api.services.analysis_attempts import get_attempt_started_at
+from api.services.full_run_policy import get_latest_full_run_created_at
 from api.services.local_usage.schemas import (
     CoachMessageStatus,
     LocalUsageFeatures,
@@ -38,7 +36,6 @@ from api.services.local_usage.usage import (
 )
 from api.services.local_usage_plans import (
     LOCAL_DEFAULT_USAGE_PLAN,
-    LOCAL_EXTENDED_USAGE_PLAN,
     LocalUsagePlan,
     get_local_usage_plan_definition,
 )
@@ -80,14 +77,14 @@ class InitialDraftPlanStatus:
 
 @dataclass(frozen=True, init=False)
 class PlanGenerationAccess:
-    mode: Literal["dev_bypass", "extended", "free"]
+    mode: Literal["dev_bypass", "extended", "free", "free_initial"]
     usage_context: LocalUsageContext | None = None
     initial_draft_claim_source_id: str | None = None
 
     def __init__(
         self,
         *,
-        mode: Literal["dev_bypass", "extended", "free"],
+        mode: Literal["dev_bypass", "extended", "free", "free_initial"],
         usage_context: LocalUsageContext | None = None,
         initial_draft_claim_source_id: str | None = None,
     ):
@@ -381,7 +378,8 @@ async def _repair_stale_initial_draft_plan_claim(
         return False
 
     current_time = _now_utc(now)
-    age_seconds = (current_time - _now_utc(job.created_at)).total_seconds()
+    attempt_started_at = get_attempt_started_at(job.config, fallback=job.created_at)
+    age_seconds = (current_time - _now_utc(attempt_started_at)).total_seconds()
     if age_seconds <= stale_threshold_seconds:
         return False
 
@@ -396,7 +394,13 @@ async def _find_active_plan_generation_job(db: AsyncSession, *, user_id: uuid.UU
         select(AnalysisJob)
         .where(
             AnalysisJob.user_id == user_id,
-            AnalysisJob.status.in_((JobStatus.PENDING.value, JobStatus.RUNNING.value)),
+            AnalysisJob.status.in_(
+                (
+                    JobStatus.PENDING.value,
+                    JobStatus.RUNNING.value,
+                    JobStatus.AWAITING_INPUT.value,
+                )
+            ),
         )
         .order_by(AnalysisJob.created_at.desc())
         .limit(1)
@@ -410,45 +414,17 @@ async def ensure_plan_generation_available(
     user_id: uuid.UUID,
     now: datetime | None = None,
 ) -> PlanGenerationAccess:
-    settings = get_settings()
-    if is_usage_safety_bypass_enabled(settings):
-        return PlanGenerationAccess(mode="dev_bypass", usage_context=None)
-
     active_job = await _find_active_plan_generation_job(db, user_id=user_id)
     if active_job is not None:
-        raise HTTPException(status_code=409, detail="Plan generation is already running.")
-
-    context = await get_local_usage_context(db, user_id=user_id)
-    plan = context.effective_plan
-    cooldown_days = plan.plan_generation_cooldown_days
-    cooldown_interval = timedelta(days=cooldown_days)
-    availability = await evaluate_full_run_availability(
-        db,
-        user_id=user_id,
-        now=now,
-        min_interval=cooldown_interval,
-    )
-
-    if availability.allowed:
-        return PlanGenerationAccess(
-            mode="extended" if context.has_access else "free",
-            usage_context=context,
-        )
-
-    next_allowed_at = availability.next_allowed_at.astimezone(UTC).isoformat() if availability.next_allowed_at else None
-    if not context.has_access:
         raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Local plan generation is limited to once every {cooldown_days} days. "
-                f"Next allowed at {next_allowed_at}."
-            ),
+            status_code=409,
+            detail="A plan generation run is already active or waiting for your clarification.",
         )
 
+    last_run_at = await get_latest_full_run_created_at(db, user_id=user_id)
     return PlanGenerationAccess(
-        mode="extended",
-        usage_context=context,
-        initial_draft_claim_source_id=None,
+        mode="free_initial" if last_run_at is None else "free",
+        usage_context=None,
     )
 
 
@@ -789,8 +765,6 @@ async def build_local_usage_status_snapshot(
             plan_generation=PlanGenerationStatus(
                 allowed=True,
                 last_generated_at=None,
-                next_allowed_at=None,
-                cooldown_days=LOCAL_EXTENDED_USAGE_PLAN.plan_generation_cooldown_days,
             ),
             adaptive_updates=await get_adaptive_update_usage(db, user_id=user_id, now=current_time),
             daily_sync=await get_daily_sync_usage(db, user_id=user_id, now=current_time),
@@ -805,12 +779,7 @@ async def build_local_usage_status_snapshot(
     context = await get_local_usage_context(db, user_id=user_id)
     plan_override = context.plan_override
     plan = context.effective_plan
-    cooldown_days = plan.plan_generation_cooldown_days
-    cooldown_interval = timedelta(days=cooldown_days)
     last_full_run_at = await get_latest_full_run_created_at(db, user_id=user_id)
-    availability = await evaluate_full_run_availability(
-        db, user_id=user_id, now=current_time, min_interval=cooldown_interval
-    )
     current_period_start, current_period_end = _period_window_for_plan_override(plan_override, now=current_time)
 
     return LocalUsageStatusSnapshot(
@@ -829,10 +798,8 @@ async def build_local_usage_status_snapshot(
         current_period_start=current_period_start,
         current_period_end=current_period_end,
         plan_generation=PlanGenerationStatus(
-            allowed=availability.allowed,
+            allowed=True,
             last_generated_at=last_full_run_at,
-            next_allowed_at=availability.next_allowed_at,
-            cooldown_days=cooldown_days,
         ),
         adaptive_updates=await get_adaptive_update_usage(db, user_id=user_id, context=context, now=current_time),
         daily_sync=await get_daily_sync_usage(db, user_id=user_id, context=context, now=current_time),

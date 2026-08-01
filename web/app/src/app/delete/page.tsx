@@ -78,6 +78,7 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
           <li>Athlete profile, competitions, and local owner-scoped app content</li>
           <li>Active plans, analyses, jobs, daily update runs, weekly recap runs, and coaching outputs</li>
           <li>Coach threads, messages, events, proposals, and local safety usage rows</li>
+          <li>Owner-scoped Head Coach checkpoint payloads used for pause and resume</li>
           <li>Legacy encrypted credentials, pending OAuth sessions, and connector history from older development builds</li>
           <li>Local usage rows that still exist in the database</li>
         </ul>
@@ -100,7 +101,7 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
         </p>
       </section>
 
-      <p className="text-xs text-zinc-500">Last updated: May 31, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — last updated: August 1, 2026</p>
     </PublicPageShell>
   );
 }

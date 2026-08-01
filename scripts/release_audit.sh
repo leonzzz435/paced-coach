@@ -36,6 +36,7 @@ prepare_report_directory() {
   rm -rf "$tracked_export" "$history_repo"
   rm -f "$report_dir/history.json" "$report_dir/history.scanner.log"
   rm -f "$report_dir/tracked.json" "$report_dir/tracked.scanner.log"
+  rm -f "$report_dir/scanned-refs.txt"
   mkdir -p "$tracked_export"
 }
 
@@ -165,6 +166,39 @@ check_hosted_ops_files() {
   ok "no hosted deployment artifacts detected"
 }
 
+check_remote_ref_freshness() {
+  local remote
+  local remote_count=0
+  while IFS= read -r remote; do
+    [[ -z "$remote" ]] && continue
+    remote_count=$((remote_count + 1))
+    local remote_refs
+    if ! remote_refs="$(git ls-remote --heads --tags "$remote" 2>/dev/null)"; then
+      error "unable to verify configured remote refs; fetch/network access is required for release audit"
+      continue
+    fi
+    local oid ref local_ref local_oid
+    while IFS=$'\t' read -r oid ref; do
+      [[ -z "$oid" || -z "$ref" || "$ref" == *'^{}' ]] && continue
+      if [[ "$ref" == refs/heads/* ]]; then
+        local_ref="refs/remotes/$remote/${ref#refs/heads/}"
+      else
+        local_ref="$ref"
+      fi
+      local_oid="$(git rev-parse --verify "$local_ref" 2>/dev/null || true)"
+      if [[ "$local_oid" != "$oid" ]]; then
+        error "configured remote refs are missing or stale; fetch all heads and tags before release audit"
+        break
+      fi
+    done <<< "$remote_refs"
+  done < <(git remote)
+  if [[ $remote_count -eq 0 ]]; then
+    ok "no configured remotes require freshness verification"
+  elif [[ $error_count -eq 0 ]]; then
+    ok "configured remote heads and tags match local tracking refs"
+  fi
+}
+
 export_tracked_files() {
   if ! git archive --format=tar HEAD | tar -xf - -C "$tracked_export"; then
     error "failed to create isolated tracked-file export"
@@ -180,21 +214,34 @@ export_release_history() {
   fi
 
   local ref
+  local symref
   local ref_count=0
-  while IFS= read -r ref; do
+  : > "$report_dir/scanned-refs.txt"
+  chmod 600 "$report_dir/scanned-refs.txt"
+  while IFS=' ' read -r ref symref; do
     [[ -z "$ref" ]] && continue
+    # refs/remotes/<remote>/HEAD is normally symbolic. Copying the concrete
+    # remote branch already covers its history, while fetching the symbolic
+    # alias into a bare repository is ambiguous and can fail.
+    [[ -n "$symref" ]] && continue
     if ! git --git-dir="$history_repo" fetch -q "$repo_root" "+$ref:$ref"; then
-      error "failed to copy release history ref: $ref"
+      error "failed to copy one release history ref; names are recorded only in the private audit report"
       return 1
     fi
+    printf '%s\n' "$ref" >> "$report_dir/scanned-refs.txt"
     ref_count=$((ref_count + 1))
-  done < <(git for-each-ref --format='%(refname)' refs/heads refs/tags)
+  done < <(
+    git for-each-ref \
+      --format='%(refname) %(symref)' \
+      refs/heads refs/tags refs/remotes
+  )
 
   if [[ $ref_count -eq 0 ]]; then
     error "no release history refs found"
     return 1
   fi
-  ok "isolated release history created from $ref_count branch/tag refs"
+  ok "isolated release history created from $ref_count local and remote-tracking refs"
+  info "scanned ref names recorded in the untracked private audit report"
 }
 
 run_gitleaks_direct() {
@@ -202,7 +249,11 @@ run_gitleaks_direct() {
   local target="$2"
   local report_path="$3"
   local scanner_log="$4"
-  "$RELEASE_AUDIT_GITLEAKS_BIN" "$mode" \
+  local history_args=()
+  if [[ "$mode" == "git" ]]; then
+    history_args=(--log-opts "--all --full-history")
+  fi
+  "$RELEASE_AUDIT_GITLEAKS_BIN" "$mode" "${history_args[@]}" \
     --config "$gitleaks_config" \
     --redact=100 \
     --report-format json \
@@ -215,11 +266,15 @@ run_gitleaks_docker() {
   local target="$2"
   local report_name="$3"
   local scanner_log="$4"
+  local history_args=()
+  if [[ "$mode" == "git" ]]; then
+    history_args=(--log-opts "--all --full-history")
+  fi
   docker run --rm --network none \
     --mount "type=bind,src=$target,dst=/scan,readonly" \
     --mount "type=bind,src=$gitleaks_config,dst=/config/.gitleaks.toml,readonly" \
     --mount "type=bind,src=$report_dir,dst=/reports" \
-    "$GITLEAKS_IMAGE" "$mode" \
+    "$GITLEAKS_IMAGE" "$mode" "${history_args[@]}" \
     --config /config/.gitleaks.toml \
     --redact=100 \
     --report-format json \
@@ -260,6 +315,7 @@ check_tracked_paths
 check_workflow_secret_references
 check_network_bindings
 check_hosted_ops_files
+check_remote_ref_freshness
 
 if export_tracked_files; then
   run_secret_scan "tracked-file" "dir" "$tracked_export" "tracked.json"

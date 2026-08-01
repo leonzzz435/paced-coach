@@ -13,20 +13,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _check_renderer_coverage() -> list[str]:
     manifest = get_version_manifest()
     errors: list[str] = []
-    supported_versions = manifest.compatibility.ui_schema.supported_versions
+    support_by_kind = manifest.compatibility.ui_schema.supported_versions_by_kind
 
-    for version in supported_versions:
-        analysis_renderer = REPO_ROOT / f"web/app/src/components/plan-viewer/versioned/analysis-view-v{version}.tsx"
-        season_renderer = REPO_ROOT / f"web/app/src/components/plan-viewer/versioned/season-plan-view-v{version}.tsx"
-        weekly_renderer = REPO_ROOT / f"web/app/src/components/plan-viewer/versioned/weekly-plan-view-v{version}.tsx"
+    renderer_names = {
+        "analysis": "analysis-view",
+        "season": "season-plan-view",
+        "weekly": "weekly-plan-view",
+    }
+    for kind, supported_versions in support_by_kind.items():
+        for version in supported_versions:
+            renderer = REPO_ROOT / f"web/app/src/components/plan-viewer/versioned/{renderer_names[kind]}-v{version}.tsx"
+            if not renderer.exists():
+                errors.append(f"Missing renderer file: {renderer}")
+
+    for version in manifest.compatibility.ui_schema.supported_versions:
         fixture_dir = REPO_ROOT / f"web/app/src/lib/demo/fixtures/v{version}"
-
-        if not analysis_renderer.exists():
-            errors.append(f"Missing renderer file: {analysis_renderer}")
-        if not season_renderer.exists():
-            errors.append(f"Missing renderer file: {season_renderer}")
-        if not weekly_renderer.exists():
-            errors.append(f"Missing renderer file: {weekly_renderer}")
         if not fixture_dir.exists():
             errors.append(f"Missing fixture directory: {fixture_dir}")
 

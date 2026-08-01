@@ -1,3 +1,4 @@
+import type { SeasonPlanV3 } from "@/components/plan-viewer/types";
 import type { UiSeasonPlan } from "@/lib/types/ui-blocks";
 
 function parseIso(value?: string | null): number | null {
@@ -12,7 +13,7 @@ export type SeasonProgressState = {
     nowMs: number;
 };
 
-export function buildSeasonProgressState(seasonPlan: UiSeasonPlan, nowIso?: string): SeasonProgressState | null {
+export function buildSeasonProgressState(seasonPlan: UiSeasonPlan | SeasonPlanV3, nowIso?: string): SeasonProgressState | null {
     const startMs = parseIso(seasonPlan.start_date);
     const endMs = parseIso(seasonPlan.end_date);
     if (!startMs || !endMs || seasonPlan.phases.length === 0) return null;

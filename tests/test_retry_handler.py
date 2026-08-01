@@ -1,9 +1,8 @@
-"""Tests for retry_handler with OpenAI/Anthropic rate-limit resilience."""
+"""Tests for retry_handler with OpenAI rate-limit resilience."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import anthropic
 import openai
 import pytest
 
@@ -28,34 +27,6 @@ def _make_openai_rate_limit_error(retry_after: str | None = None):
         message="Rate limit exceeded",
         response=mock_response,
         body=None,
-    )
-
-
-def _make_anthropic_rate_limit_error():
-    mock_response = MagicMock()
-    mock_response.status_code = 429
-    mock_response.headers = {}
-    return anthropic.RateLimitError(
-        message="Rate limit exceeded",
-        response=mock_response,
-        body=None,
-    )
-
-
-def _make_anthropic_internal_server_error():
-    mock_response = MagicMock()
-    mock_response.status_code = 503
-    mock_response.headers = {}
-    return anthropic.InternalServerError(
-        message="Grammar compilation is temporarily unavailable. Please try again.",
-        response=mock_response,
-        body={
-            "type": "error",
-            "error": {
-                "type": "overloaded_error",
-                "message": "Grammar compilation is temporarily unavailable. Please try again.",
-            },
-        },
     )
 
 
@@ -118,36 +89,6 @@ class TestRetryWithBackoff:
             call_count += 1
             if call_count == 1:
                 raise openai.APITimeoutError(request=MagicMock())
-            return "ok"
-
-        result = await retry_with_backoff(flaky, FAST_CONFIG, "test")
-        assert result == "ok"
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_anthropic_rate_limit_is_retried(self):
-        call_count = 0
-
-        async def flaky():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise _make_anthropic_rate_limit_error()
-            return "ok"
-
-        result = await retry_with_backoff(flaky, FAST_CONFIG, "test")
-        assert result == "ok"
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_anthropic_internal_server_error_is_retried(self):
-        call_count = 0
-
-        async def flaky():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise _make_anthropic_internal_server_error()
             return "ok"
 
         result = await retry_with_backoff(flaky, FAST_CONFIG, "test")
