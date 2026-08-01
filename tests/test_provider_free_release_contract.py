@@ -73,3 +73,12 @@ def test_local_first_eval_cases_forbid_fabricated_external_evidence():
             "no_fabricated_provider_evidence",
         ],
     }
+
+
+@pytest.mark.unit
+def test_public_demo_does_not_advertise_removed_provider_or_recap_paths():
+    demo_source = Path("web/app/src/app/demo/page.tsx").read_text()
+
+    assert "optional provider" not in demo_source.lower()
+    assert "provider data" not in demo_source.lower()
+    assert "questions, recaps" not in demo_source.lower()

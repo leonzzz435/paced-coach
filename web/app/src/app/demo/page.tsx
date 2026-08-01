@@ -169,7 +169,7 @@ function DemoHero() {
               ["Athlete context", "You define it", "Goals, history, availability, and constraints"],
               ["Season roadmap", "11 phases", "Macro plan from March to October"],
               ["Execution block", "28 days", "Day-level sessions and adaptation gates"],
-              ["Coach workspace", "Plan-aware", "Questions, recaps, and proposed changes"],
+              ["Coach workspace", "Plan-aware", "Questions, reflections, and proposed changes"],
             ].map(([label, value, body]) => (
               <div className="rounded-3xl border border-white/10 bg-white/[0.045] p-5" key={label}>
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">{label}</div>
@@ -228,7 +228,7 @@ function CoachPreview() {
       <SectionHeader
         eyebrow="Coach workspace"
         title="Ask questions against the actual plan context."
-        body="The public demo keeps the chat static, but the local app uses saved profile, plan, competitions, recaps, and optional provider data when generating responses."
+        body="The public demo keeps the chat static, but the local app uses your saved profile, active plan, competitions, and athlete messages when generating responses."
       />
       <div className="mx-auto mt-8 grid max-w-5xl gap-4">
         {messages.map((message, index) => (
