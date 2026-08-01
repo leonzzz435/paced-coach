@@ -38,6 +38,8 @@ assert.match(combined, /constraints/i, "public messaging must identify athlete-d
 assert.match(combined, /provider-free/i, "public messaging must state the provider-free product boundary");
 assert.match(combined, /no external training-data connector|no activity-platform or recovery-device account/i);
 assert.match(publicSurfaces.demo, /kpis:\s*\[\]/, "the public demo must not surface wearable-derived KPI fixtures");
+assert.match(publicSurfaces.demo, /DEMO_SEASON_PLAN_BY_PERSONA/);
+assert.match(publicSurfaces.demo, /DEMO_WEEKLY_PLAN_BY_PERSONA/);
 assert.doesNotMatch(
   publicSurfaces.demo,
   /dashboard_kpis|analysis\.coach_action|ACWR|Recovery score|Sleep RHR|VO₂max/i,

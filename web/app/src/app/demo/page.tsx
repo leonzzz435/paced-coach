@@ -4,6 +4,9 @@ import Link from "next/link";
 import DashboardClient from "@/components/dashboard/dashboard-client";
 import PlanViewer from "@/components/plan-viewer/plan-viewer";
 import { DEFAULT_DEMO_PERSONA } from "@/lib/demo/demo-data";
+import { DEMO_SEASON_PLAN_BY_PERSONA } from "@/lib/demo/fixtures/v3/season";
+import { DEMO_WEEKLY_PLAN_BY_PERSONA } from "@/lib/demo/fixtures/v3/weekly";
+import { DEFAULT_DEMO_PERSONA_ID } from "@/lib/demo/personas";
 import { buildPublicMetadata } from "@/lib/public-metadata";
 import type { DashboardStateResponse } from "@/lib/types/dashboard";
 
@@ -14,16 +17,18 @@ export const metadata = buildPublicMetadata({
   path: "/demo",
 });
 
-const DEMO_NOW_ISO = "2026-03-07T07:45:00.000Z";
+const DEMO_NOW_ISO = "2026-08-04T07:45:00.000Z";
+const DEMO_SEASON_PLAN = DEMO_SEASON_PLAN_BY_PERSONA[DEFAULT_DEMO_PERSONA_ID];
+const DEMO_WEEKLY_PLAN = DEMO_WEEKLY_PLAN_BY_PERSONA[DEFAULT_DEMO_PERSONA_ID];
 
 function demoDashboardState(): DashboardStateResponse {
-  const todayOverride = DEFAULT_DEMO_PERSONA.weekly.weeks[0]?.days[1] ?? null;
+  const today = DEMO_WEEKLY_PLAN.weeks[0]?.days[1] ?? null;
 
   return {
     athlete_time: {
       timezone: "Europe/Berlin",
       timezone_source: "profile",
-      today_local_date: todayOverride?.date ?? "2026-03-07",
+      today_local_date: today?.date ?? "2026-08-04",
       now_local_iso: DEMO_NOW_ISO,
     },
     analysis: {
@@ -37,7 +42,7 @@ function demoDashboardState(): DashboardStateResponse {
       source: "none",
       label: null,
       updated_at: DEMO_NOW_ISO,
-      target_date: todayOverride?.date ?? "2026-03-07",
+      target_date: today?.date ?? "2026-08-04",
     },
     coach_surface: {
       source: "analysis",
@@ -50,14 +55,14 @@ function demoDashboardState(): DashboardStateResponse {
       updated_at: DEMO_NOW_ISO,
     },
     season: {
-      season_plan: DEFAULT_DEMO_PERSONA.season,
-      version: DEFAULT_DEMO_PERSONA.season.version,
+      season_plan: DEMO_SEASON_PLAN,
+      version: DEMO_SEASON_PLAN.version,
       updated_at: DEMO_NOW_ISO,
       source_job_id: "demo-season-job",
     },
     weekly: {
-      weekly_plan: DEFAULT_DEMO_PERSONA.weekly,
-      version: DEFAULT_DEMO_PERSONA.weekly.version,
+      weekly_plan: DEMO_WEEKLY_PLAN,
+      version: DEMO_WEEKLY_PLAN.version,
       updated_at: DEMO_NOW_ISO,
       source_job_id: "demo-weekly-job",
     },
@@ -83,7 +88,7 @@ function demoDashboardState(): DashboardStateResponse {
         "Demo mode: this is fixture data, not live medical or training advice.",
         "No device-derived readiness, sleep, or compliance signal is assumed; describe anything relevant in your own words.",
       ],
-      day_override: todayOverride,
+      day_override: null,
     },
     daily_sync: {
       visible: false,
@@ -168,7 +173,7 @@ function DemoHero() {
           <div className="grid gap-3 sm:grid-cols-2">
             {[
               ["Athlete context", "You define it", "Goals, history, availability, and constraints"],
-              ["Season roadmap", "11 phases", "Macro plan from March to October"],
+              ["Season roadmap", "3 phases", "Macro plan from August to November"],
               ["Execution block", "28 days", "Day-level sessions and adaptation gates"],
               ["Coach workspace", "Plan-aware", "Questions, reflections, and proposed changes"],
             ].map(([label, value, body]) => (
@@ -285,8 +290,8 @@ function PlanPreview() {
             analysis={DEFAULT_DEMO_PERSONA.analysis}
             nowIso={DEMO_NOW_ISO}
             publicPreview
-            seasonPlan={DEFAULT_DEMO_PERSONA.season}
-            weeklyPlan={DEFAULT_DEMO_PERSONA.weekly}
+            seasonPlan={DEMO_SEASON_PLAN}
+            weeklyPlan={DEMO_WEEKLY_PLAN}
           />
         </Suspense>
       </div>
