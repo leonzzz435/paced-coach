@@ -2484,7 +2484,7 @@ packages:
 - pypi: ./
   name: paced-coach
   version: 2.2.0
-  sha256: 0f16f536e9319edab8dc44d09272a303b72a9d06b7419015b3d338694f19cb5c
+  sha256: 1aa131c2e5c9805e21b25eae225bfbae5259df4df35d45d371b9a7fd499f0688
   requires_python: '>=3.13'
   editable: true
 - pypi: https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl
