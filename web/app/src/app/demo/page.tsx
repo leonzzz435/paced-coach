@@ -33,9 +33,9 @@ function demoDashboardState(): DashboardStateResponse {
       source_job_id: "demo-analysis-job",
     },
     status_surface: {
-      kpis: DEFAULT_DEMO_PERSONA.analysis.dashboard_kpis ?? DEFAULT_DEMO_PERSONA.analysis.kpis.slice(0, 6),
-      source: "analysis",
-      label: "Demo baseline analysis",
+      kpis: [],
+      source: "none",
+      label: null,
       updated_at: DEMO_NOW_ISO,
       target_date: todayOverride?.date ?? "2026-03-07",
     },
@@ -43,9 +43,10 @@ function demoDashboardState(): DashboardStateResponse {
       source: "analysis",
       scope: "training_block",
       primary_label: "Coach priority",
-      primary_text: DEFAULT_DEMO_PERSONA.analysis.coach_action ?? null,
+      primary_text:
+        "Keep Saturday's long run easy and fueled. It anchors this block without requiring pace, heart-rate, or readiness targets.",
       secondary_text:
-        "The agent keeps load progression explicit, marks adaptation gates, and avoids claiming readiness signals the athlete did not provide.",
+        "The agent reasons from the active plan and declared constraints, marks adaptation gates, and makes uncertainty explicit.",
       updated_at: DEMO_NOW_ISO,
     },
     season: {
@@ -80,7 +81,7 @@ function demoDashboardState(): DashboardStateResponse {
     today_mission: {
       warnings: [
         "Demo mode: this is fixture data, not live medical or training advice.",
-        "Readiness, HRV, sleep, and compliance are unknown unless the athlete explicitly provides them.",
+        "No device-derived readiness, sleep, or compliance signal is assumed; describe anything relevant in your own words.",
       ],
       day_override: todayOverride,
     },

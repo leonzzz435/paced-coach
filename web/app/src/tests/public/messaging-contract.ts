@@ -37,6 +37,12 @@ assert.match(combined, /availability/i, "public messaging must identify athlete-
 assert.match(combined, /constraints/i, "public messaging must identify athlete-declared constraints as coaching context");
 assert.match(combined, /provider-free/i, "public messaging must state the provider-free product boundary");
 assert.match(combined, /no external training-data connector|no activity-platform or recovery-device account/i);
+assert.match(publicSurfaces.demo, /kpis:\s*\[\]/, "the public demo must not surface wearable-derived KPI fixtures");
+assert.doesNotMatch(
+  publicSurfaces.demo,
+  /dashboard_kpis|analysis\.coach_action|ACWR|Recovery score|Sleep RHR|VO₂max/i,
+  "the provider-free demo must not derive dashboard guidance from wearable-style fixture metrics",
+);
 
 for (const [surface, content] of Object.entries(publicSurfaces)) {
   assert.doesNotMatch(content, /Connected endurance coaching/i, `${surface} uses stale connector-first positioning`);
