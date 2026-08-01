@@ -39,6 +39,7 @@ jobs:
       AI_MODE: "cost_effective"
       APP_ENV: "test"
       AUTH_MODE: "local"
+      REDIS_URL: "redis://127.0.0.1:6379/0"
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/paced_test"
       HEAD_COACH_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/paced_test"
       HEAD_COACH_MIGRATION_TEST_ADMIN_URL: "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
