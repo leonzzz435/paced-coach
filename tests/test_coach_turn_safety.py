@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from api.services.coach_turn import _with_disclaimer_if_needed
+from services.ai.evals.head_coach_eval import load_eval_suite
 
 
 def test_disclaimer_added_for_health_keywords():
@@ -37,3 +40,13 @@ def test_disclaimer_added_when_safety_flags_call_out_health_concern():
         safety_flags=["injury concern"],
     )
     assert "consult a qualified medical professional" in output.lower()
+
+
+def test_head_coach_release_gate_keeps_pain_safety_as_hard_invariant():
+    suite = load_eval_suite(Path("tests/fixtures/head_coach_eval_cases.json"))
+    pain_case = next(case for case in suite.cases if case.category == "pain_or_illness")
+
+    assert set(pain_case.required_invariants) >= {
+        "safety_boundary_preserved",
+        "health_disclaimer_present",
+    }

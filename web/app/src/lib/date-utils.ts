@@ -13,6 +13,16 @@ export function localYYYYMMDD(now = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Read the calendar date from an athlete-local ISO timestamp without first
+ * converting it to UTC. Falling back to the browser clock keeps legacy and
+ * job-result views useful when no athlete time context is available.
+ */
+export function athleteLocalYYYYMMDD(nowIso?: string | null): string {
+  const localDate = nowIso?.match(/^(\d{4}-\d{2}-\d{2})(?:T|$)/)?.[1];
+  return localDate ?? localYYYYMMDD();
+}
+
 export function getCurrentSeasonIndex(plan?: UiSeasonPlan | null, now = new Date()): number {
   if (!plan || plan.phases.length === 0) return 0;
   const currentIndex = plan.phases.findIndex((phase) => {
@@ -38,4 +48,3 @@ export function getCurrentWeekIndex(plan?: UiWeeklyPlan | null, now = new Date()
   });
   return next >= 0 ? next : 0;
 }
-

@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -7,50 +6,44 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, cast
 
-import anthropic
-import httpx
 import openai
 from billiard.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
-from sqlalchemy import create_engine, delete, select
+from langgraph.types import Command
+from sqlalchemy import create_engine, delete, select, text
 from sqlalchemy.orm import Session
 
-from api.config import get_settings
-from api.models.active_analysis import ActiveAnalysis
 from api.models.active_season_plan import ActiveSeasonPlan
 from api.models.active_weekly_plan import ActiveWeeklyPlan
+from api.models.ai_run_cost import AiRunCost
+from api.models.coach_event import CoachEvent
 from api.models.coach_thread import CoachThread
 from api.models.coach_turn_request import CoachTurnRequest
-from api.models.credentials import StravaCredentials, WhoopCredentials
 from api.models.job import AnalysisJob, JobStatus
 from api.models.local_usage import LocalUsageEvent
+from api.models.user import User
 from api.services.ai_run_costs import (
+    AiRunCostSnapshot,
     build_ai_run_cost_record,
-    capture_langsmith_run_costs,
-    snapshot_from_legacy_cost_summary,
-    trace_metadata_from_execution_metadata,
 )
+from api.services.analysis_attempts import with_attempt_started_at
+from api.services.analysis_resume import terminal_resume_receipt
 from api.services.coach_memory import maybe_update_thread_memory
-from api.services.crypto import get_crypto_service
-from api.services.evidence_profile import build_evidence_profile
 from api.services.local_usage.usage import FEATURE_FULL_RUN, FEATURE_INITIAL_DRAFT_PLAN, INITIAL_DRAFT_PLAN_SOURCE_TYPE
 from api.services.status_messages import (
     complete_active_analysis_progress_steps,
-    initial_analysis_progress_steps,
-    mark_analysis_progress_step_completed,
+    initial_head_coach_progress_steps,
     mark_analysis_progress_step_started,
     normalize_analysis_progress_steps,
-    record_analysis_step_timing,
 )
 from core.task_timeouts import get_analysis_task_soft_time_limit_seconds
-from services.ai.langgraph.nodes.training_data_projection import build_training_transition_context
-from services.ai.langgraph.schemas.ui_blocks import UiSeasonPlan, UiWeeklyPlan
-from services.ai.langgraph.workflows.planning_workflow import run_complete_analysis_and_planning
-from services.strava import StravaApiClient
-from services.strava.oauth import compute_expires_at as strava_compute_expires_at
-from services.strava.oauth import refresh_tokens as strava_refresh_tokens
-from services.whoop import WhoopApiClient
-from services.whoop.oauth import compute_expires_at as whoop_compute_expires_at
-from services.whoop.oauth import refresh_tokens as whoop_refresh_tokens
+from services.ai.head_coach.artifacts import ExecutionPlanArtifactV3, SeasonStrategyArtifactV3
+from services.ai.head_coach.checkpointing import derive_advisory_lock_key, get_process_checkpointer_provider
+from services.ai.head_coach.initial_planning import (
+    build_initial_planning_context,
+    build_model_planner,
+    run_initial_planning,
+)
+from services.ai.head_coach.middleware import LifecyclePhase
 from worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -59,14 +52,10 @@ _ANALYSIS_AUTORETRY_EXCEPTIONS = (
     openai.RateLimitError,
     openai.APIConnectionError,
     openai.APITimeoutError,
-    anthropic.RateLimitError,
-    anthropic.APIConnectionError,
-    anthropic.APITimeoutError,
 )
 
 # Postgres JSONB rejects null bytes and certain control characters that LLMs occasionally emit.
 _CONTROL_CHAR_RE = __import__("re").compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-_HTML_TAG_RE = __import__("re").compile(r"<[^>]+>")
 _worker_event_loops: dict[int, asyncio.AbstractEventLoop] = {}
 
 
@@ -110,188 +99,68 @@ def _as_json_dict(value: object) -> dict[str, Any]:
     return cast("dict[str, Any]", value)
 
 
-def _safe_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-
-
-def _strava_activity_date_key(activity: dict) -> str | None:
-    raw_start = activity.get("start_date_local") or activity.get("start_date")
-    if not isinstance(raw_start, str) or not raw_start.strip():
-        return None
-    return raw_start[:10]
-
-
-def _build_strava_training_load_history(activities: list[dict]) -> list[dict]:
-    daily_totals: dict[str, dict[str, object]] = {}
-    for activity in activities:
-        date_key = _strava_activity_date_key(activity)
-        if not date_key:
-            continue
-        bucket = daily_totals.setdefault(
-            date_key,
-            {
-                "date": date_key,
-                "activity_count": 0,
-                "relative_effort_total": 0.0,
-                "suffer_score_total": 0.0,
-                "moving_time_minutes_total": 0.0,
-                "distance_m_total": 0.0,
-                "_has_relative_effort": False,
-                "_has_suffer_score": False,
-            },
-        )
-        bucket["activity_count"] = cast("int", bucket["activity_count"]) + 1
-
-        relative_effort = _safe_float(activity.get("relative_effort"))
-        if relative_effort is not None:
-            bucket["relative_effort_total"] = cast("float", bucket["relative_effort_total"]) + relative_effort
-            bucket["_has_relative_effort"] = True
-
-        suffer_score = _safe_float(activity.get("suffer_score"))
-        if suffer_score is not None:
-            bucket["suffer_score_total"] = cast("float", bucket["suffer_score_total"]) + suffer_score
-            bucket["_has_suffer_score"] = True
-
-        moving_time = _safe_float(activity.get("moving_time"))
-        if moving_time is not None:
-            bucket["moving_time_minutes_total"] = cast("float", bucket["moving_time_minutes_total"]) + (moving_time / 60.0)
-
-        distance_m = _safe_float(activity.get("distance"))
-        if distance_m is not None:
-            bucket["distance_m_total"] = cast("float", bucket["distance_m_total"]) + distance_m
-
-    payload: list[dict] = []
-    for date_key in sorted(daily_totals.keys()):
-        bucket = dict(daily_totals[date_key])
-        has_relative_effort = bool(bucket.pop("_has_relative_effort", False))
-        has_suffer_score = bool(bucket.pop("_has_suffer_score", False))
-        load_value = None
-        load_type = "strava_activity_count"
-        if has_relative_effort:
-            load_value = bucket.get("relative_effort_total")
-            load_type = "strava_relative_effort"
-        elif has_suffer_score:
-            load_value = bucket.get("suffer_score_total")
-            load_type = "strava_suffer_score"
-        bucket["load_type"] = load_type
-        bucket["load_value"] = load_value
-        payload.append(bucket)
-    return payload
-
-
-def _list_strava_activities_with_pagination(
+def _artifact_commit_already_completed(
     *,
-    client: StravaApiClient,
-    after: int,
-    before: int,
-) -> list[dict]:
-    activities: list[dict] = []
-    page = 1
-    per_page = 100
-    while True:
-        batch = client.list_activities(page=page, per_page=per_page, after=after, before=before)
-        if not batch:
-            break
-        activities.extend(batch)
-        if len(batch) < per_page:
-            break
-        page += 1
-    return activities
-
-
-def _build_strava_activity_summary(activities: list[dict]) -> dict[str, Any]:
-    total_distance_m = 0.0
-    total_moving_time_seconds = 0.0
-    total_relative_effort = 0.0
-    total_suffer_score = 0.0
-    has_relative_effort = False
-    has_suffer_score = False
-    for activity in activities:
-        distance_m = _safe_float(activity.get("distance"))
-        if distance_m is not None:
-            total_distance_m += distance_m
-        moving_time = _safe_float(activity.get("moving_time"))
-        if moving_time is not None:
-            total_moving_time_seconds += moving_time
-        relative_effort = _safe_float(activity.get("relative_effort"))
-        if relative_effort is not None:
-            total_relative_effort += relative_effort
-            has_relative_effort = True
-        suffer_score = _safe_float(activity.get("suffer_score"))
-        if suffer_score is not None:
-            total_suffer_score += suffer_score
-            has_suffer_score = True
-
-    return {
-        "activity_count": len(activities),
-        "distance_km_total": round(total_distance_m / 1000.0, 2) if total_distance_m else 0.0,
-        "moving_time_minutes_total": round(total_moving_time_seconds / 60.0, 1) if total_moving_time_seconds else 0.0,
-        "relative_effort_total": total_relative_effort if has_relative_effort else None,
-        "suffer_score_total": total_suffer_score if has_suffer_score else None,
-    }
-
-
-_ATHLETE_PROFILE_CONTEXT_PROMPT = """You are provided an athlete profile snapshot (persisted per user).
-Use it to tailor analysis and planning, unless it conflicts with fresh device training data.
-
-Athlete profile snapshot (JSON):
-{athlete_profile_json}
-"""
-
-
-def _build_run_override_contexts(run_overrides: dict[str, Any] | None) -> tuple[str, str]:
-    if not run_overrides:
-        return "", ""
-
-    def _clean(raw_value: Any) -> str:
-        if raw_value is None:
-            return ""
-        if not isinstance(raw_value, str):
-            raw_value = str(raw_value)
-        return raw_value.strip()
-
-    analysis_notes = _clean(run_overrides.get("analysis_notes"))
-    planning_notes = _clean(run_overrides.get("planning_notes"))
-    temporary_constraints = _clean(run_overrides.get("temporary_constraints"))
-
-    analysis_sections: list[str] = []
-    planning_sections: list[str] = []
-
-    if analysis_notes:
-        analysis_sections.append(f"Run overrides (analysis focus):\n{analysis_notes}")
-    if planning_notes:
-        analysis_sections.append(
-            "Custom planning instructions for downstream planner fields "
-            "(do not distort factual analysis; propagate relevant implications into "
-            "`for_season_planner` and `for_weekly_planner`):\n"
-            f"{planning_notes}"
-        )
-        planning_sections.append(
-            "Custom planning instructions for this run "
-            "(must preserve unless unsafe, infeasible, or contradicted by stronger athlete constraints):\n"
-            f"{planning_notes}"
-        )
-    if temporary_constraints:
-        constraint_section = f"Temporary constraints for this run (must constrain analysis and planning):\n{temporary_constraints}"
-        analysis_sections.append(constraint_section)
-        planning_sections.append(constraint_section)
-
-    return "\n\n".join(analysis_sections).strip(), "\n\n".join(planning_sections).strip()
-
-
-def _resolve_plotting_enabled(config: dict[str, Any], job_id: str) -> bool:
-    requested_plotting = bool(config.get("enable_plotting", False))
-    if requested_plotting:
-        logger.warning(
-            "Ignoring enable_plotting=true for job %s: plotting execution is disabled by policy",
-            job_id,
-        )
+    current_job: AnalysisJob,
+    season_row: ActiveSeasonPlan | None,
+    weekly_row: ActiveWeeklyPlan | None,
+    job_uuid: uuid.UUID,
+) -> bool:
+    if current_job.cancel_requested_at is not None:
+        raise _HeadCoachRunStopped("Head Coach result cannot be committed for an inactive job")
+    if current_job.status == JobStatus.COMPLETED.value:
+        if (
+            season_row is not None
+            and weekly_row is not None
+            and season_row.source_job_id == job_uuid
+            and weekly_row.source_job_id == job_uuid
+        ):
+            return True
+        raise RuntimeError("Completed Head Coach job has no matching active-plan commit receipt")
+    if current_job.status != JobStatus.RUNNING.value:
+        raise _HeadCoachRunStopped("Head Coach result cannot be committed for an inactive job")
     return False
+
+
+def _upsert_active_plan_rows(
+    *,
+    async_db: Any,
+    user_id: uuid.UUID,
+    job_uuid: uuid.UUID,
+    season_row: ActiveSeasonPlan | None,
+    weekly_row: ActiveWeeklyPlan | None,
+    season_data: dict[str, Any],
+    weekly_data: dict[str, Any],
+    season_version: int,
+    weekly_version: int,
+) -> None:
+    if season_row is None:
+        async_db.add(
+            ActiveSeasonPlan(
+                user_id=user_id,
+                version=season_version,
+                plan_data=season_data,
+                source_job_id=job_uuid,
+            )
+        )
+    else:
+        season_row.version = season_version
+        season_row.plan_data = season_data
+        season_row.source_job_id = job_uuid
+
+    if weekly_row is None:
+        async_db.add(
+            ActiveWeeklyPlan(
+                user_id=user_id,
+                version=weekly_version,
+                plan_data=weekly_data,
+                source_job_id=job_uuid,
+            )
+        )
+    else:
+        weekly_row.version = weekly_version
+        weekly_row.plan_data = weekly_data
+        weekly_row.source_job_id = job_uuid
 
 
 def _format_analysis_task_error_message(exc: Exception) -> str:
@@ -300,7 +169,11 @@ def _format_analysis_task_error_message(exc: Exception) -> str:
         if soft_limit_seconds is not None:
             return f"Job timed out (soft time limit exceeded after {soft_limit_seconds}s)"
         return "Job timed out (worker soft time limit exceeded)"
-    return str(exc) or "Analysis task failed"
+    message = str(exc) or "Analysis task failed"
+    normalized_message = message.lower()
+    if "insufficient_quota" in normalized_message or "exceeded your current quota" in normalized_message:
+        return "OpenAI API quota exhausted. Add billing credit to the configured OpenAI account, then retry."
+    return message
 
 
 def _get_database_url() -> str:
@@ -318,197 +191,6 @@ def _get_engine():
     return create_engine(_get_database_url())
 
 
-def _whoop_access_token(db: Session, *, user_id: uuid.UUID, force_refresh: bool = False) -> str:
-    creds = db.execute(
-        select(WhoopCredentials).where(WhoopCredentials.user_id == user_id).with_for_update()
-    ).scalar_one_or_none()
-    if creds is None:
-        raise ValueError("No Whoop credentials found for user")
-
-    crypto = get_crypto_service()
-    now = datetime.now(UTC)
-    if not force_refresh and (
-        creds.expires_at is not None and creds.expires_at.astimezone(UTC) > (now + timedelta(seconds=30))
-    ):
-        return crypto.decrypt(creds.encrypted_access_token)
-
-    if not creds.encrypted_refresh_token:
-        raise ValueError("Whoop refresh token is missing. Please reconnect Whoop.")
-
-    settings = get_settings()
-    if not settings.whoop_oauth_client_id or not settings.whoop_oauth_client_secret:
-        raise RuntimeError("Whoop OAuth is not configured (missing client_id/client_secret)")
-
-    refresh_token = crypto.decrypt(creds.encrypted_refresh_token)
-    try:
-        payload = whoop_refresh_tokens(
-            refresh_token=refresh_token,
-            client_id=settings.whoop_oauth_client_id,
-            client_secret=settings.whoop_oauth_client_secret,
-            scope="offline",
-        )
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code in {400, 401}:
-            db.delete(creds)
-            db.commit()
-            raise ValueError("Whoop connection expired. Please reconnect Whoop.") from exc
-        raise
-
-    access_token = payload.get("access_token")
-    if not isinstance(access_token, str) or not access_token.strip():
-        raise RuntimeError("Whoop token refresh returned an invalid access token")
-
-    new_refresh = payload.get("refresh_token")
-    creds.encrypted_access_token = crypto.encrypt(access_token)
-    if isinstance(new_refresh, str) and new_refresh.strip():
-        creds.encrypted_refresh_token = crypto.encrypt(new_refresh)
-    creds.expires_at = whoop_compute_expires_at(now=now, expires_in=payload.get("expires_in"))
-    creds.scope = str(payload.get("scope") or creds.scope or "")
-    db.add(creds)
-    db.commit()
-
-    return access_token
-
-
-def _strava_access_token(db: Session, *, user_id: uuid.UUID, force_refresh: bool = False) -> str:
-    creds = db.execute(
-        select(StravaCredentials).where(StravaCredentials.user_id == user_id).with_for_update()
-    ).scalar_one_or_none()
-    if creds is None:
-        raise ValueError("No Strava credentials found for user")
-
-    crypto = get_crypto_service()
-    now = datetime.now(UTC)
-    if not force_refresh and (
-        creds.expires_at is not None and creds.expires_at.astimezone(UTC) > (now + timedelta(seconds=30))
-    ):
-        return crypto.decrypt(creds.encrypted_access_token)
-
-    if not creds.encrypted_refresh_token:
-        raise ValueError("Strava refresh token is missing. Please reconnect Strava.")
-
-    settings = get_settings()
-    if not settings.strava_oauth_client_id or not settings.strava_oauth_client_secret:
-        raise RuntimeError("Strava OAuth is not configured (missing client_id/client_secret)")
-
-    refresh_token = crypto.decrypt(creds.encrypted_refresh_token)
-    try:
-        payload = strava_refresh_tokens(
-            refresh_token=refresh_token,
-            client_id=settings.strava_oauth_client_id,
-            client_secret=settings.strava_oauth_client_secret,
-        )
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code in {400, 401}:
-            db.delete(creds)
-            db.commit()
-            raise ValueError("Strava connection expired. Please reconnect Strava.") from exc
-        raise
-
-    access_token = payload.get("access_token")
-    if not isinstance(access_token, str) or not access_token.strip():
-        raise RuntimeError("Strava token refresh returned an invalid access token")
-
-    new_refresh = payload.get("refresh_token")
-    creds.encrypted_access_token = crypto.encrypt(access_token)
-    if isinstance(new_refresh, str) and new_refresh.strip():
-        creds.encrypted_refresh_token = crypto.encrypt(new_refresh)
-    creds.expires_at = strava_compute_expires_at(
-        now=now,
-        expires_at=payload.get("expires_at"),
-        expires_in=payload.get("expires_in"),
-    )
-    creds.scope = str(creds.scope or "")
-    db.add(creds)
-    db.commit()
-
-    return access_token
-
-
-def _extract_whoop_snapshot(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    activities_days: int,
-    metrics_days: int,
-) -> dict[str, Any]:
-    now = datetime.now(UTC)
-    workouts_start = now - timedelta(days=max(1, activities_days))
-    metrics_start = now - timedelta(days=max(1, metrics_days))
-
-    def _fetch_with_token(access_token: str) -> dict[str, Any]:
-        client = WhoopApiClient(access_token=access_token)
-        try:
-            return {
-                "profile_basic": client.get_basic_profile(),
-                "body_measurement": client.get_body_measurement(),
-                "workouts": client.list_workouts(start=workouts_start, end=now),
-                "cycles": client.list_cycles(start=metrics_start, end=now),
-                "recoveries": client.list_recoveries(start=metrics_start, end=now),
-                "sleeps": client.list_sleeps(start=metrics_start, end=now),
-            }
-        finally:
-            client.close()
-
-    access_token = _whoop_access_token(db, user_id=user_id)
-    try:
-        return _fetch_with_token(access_token)
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code != 401:
-            raise
-        # Best-effort: refresh and retry once if the stored access token was rejected.
-        access_token = _whoop_access_token(db, user_id=user_id, force_refresh=True)
-        return _fetch_with_token(access_token)
-
-
-def _extract_strava_snapshot(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    activities_days: int,
-    metrics_days: int,
-) -> dict[str, Any]:
-    now = datetime.now(UTC)
-    activities_after = int((now - timedelta(days=max(1, activities_days))).timestamp())
-    metrics_after = int((now - timedelta(days=max(1, metrics_days))).timestamp())
-    before = int(now.timestamp())
-
-    def _fetch_with_token(access_token: str) -> dict[str, Any]:
-        client = StravaApiClient(access_token=access_token)
-        try:
-            recent_activities = _list_strava_activities_with_pagination(
-                client=client,
-                after=activities_after,
-                before=before,
-            )
-            metrics_activities = _list_strava_activities_with_pagination(
-                client=client,
-                after=metrics_after,
-                before=before,
-            )
-            return {
-                "athlete_profile": client.get_logged_in_athlete(),
-                "recent_activities": recent_activities,
-                "training_load_history": _build_strava_training_load_history(metrics_activities),
-                "activity_summary": _build_strava_activity_summary(recent_activities),
-            }
-        finally:
-            client.close()
-
-    access_token = _strava_access_token(db, user_id=user_id)
-    try:
-        return _fetch_with_token(access_token)
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code != 401:
-            raise
-        access_token = _strava_access_token(db, user_id=user_id, force_refresh=True)
-        return _fetch_with_token(access_token)
-
-
 def get_sync_session() -> Session:
     return Session(_get_engine())
 
@@ -523,19 +205,6 @@ def _get_initial_draft_claim_event(db: Session, *, user_id: uuid.UUID) -> LocalU
     ).scalar_one_or_none()
 
 
-def _finalize_initial_draft_claim(db: Session, *, user_id: uuid.UUID, job_id: uuid.UUID):
-    event = _get_initial_draft_claim_event(db, user_id=user_id)
-    if event is None:
-        return
-    metadata = dict(event.payload_metadata or {})
-    metadata["state"] = "consumed"
-    metadata["analysis_job_id"] = str(job_id)
-    metadata["finalized_at"] = datetime.now(UTC).isoformat()
-    event.payload_metadata = metadata
-    event.consumed_at = datetime.now(UTC)
-    db.add(event)
-
-
 def _release_initial_draft_claim(db: Session, *, user_id: uuid.UUID):
     event = _get_initial_draft_claim_event(db, user_id=user_id)
     if event is None:
@@ -545,27 +214,6 @@ def _release_initial_draft_claim(db: Session, *, user_id: uuid.UUID):
     if state != "pending":
         return
     db.delete(event)
-
-
-def _record_full_run_consumption(db: Session, *, user_id: uuid.UUID, job_id: uuid.UUID):
-    existing = db.execute(
-        select(LocalUsageEvent).where(
-            LocalUsageEvent.feature_key == FEATURE_FULL_RUN,
-            LocalUsageEvent.source_type == "analysis_job",
-            LocalUsageEvent.source_id == str(job_id),
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return
-    db.add(
-        LocalUsageEvent(
-            user_id=user_id,
-            feature_key=FEATURE_FULL_RUN,
-            source_type="analysis_job",
-            source_id=str(job_id),
-            consumed_at=datetime.now(UTC),
-        )
-    )
 
 
 def _should_defer_failure_to_autoretry(task: Any, exc: BaseException) -> bool:
@@ -584,248 +232,8 @@ def _cancel_requested(db: Session, job_id: uuid.UUID) -> bool:
     return requested_at is not None
 
 
-def _pydantic_dump(value):
-    if value is None:
-        return None
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    return value
-
-
-def _extract_expert_context(result: dict) -> dict:
-    return {
-        "metrics_outputs": _pydantic_dump(result.get("metrics_outputs")),
-        "activity_outputs": _pydantic_dump(result.get("activity_outputs")),
-        "physiology_outputs": _pydantic_dump(result.get("physiology_outputs")),
-    }
-
-
-def _extract_plan_markdown(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        output = value.get("output")
-        if isinstance(output, str):
-            return output
-    return None
-
-
-def _render_season_plan_blocks_as_markdown(plan: UiSeasonPlan) -> str:
-    # Best-effort: keep full content by embedding existing HTML fragments.
-    lines: list[str] = []
-    lines.append("# Season Plan (from stored UI blocks)")
-    lines.append("")
-    lines.append(f"- Start: {plan.start_date}")
-    lines.append(f"- End: {plan.end_date}")
-    if plan.season_summary_line:
-        lines.append(f"- Summary: {plan.season_summary_line}")
-    lines.append("")
-
-    if plan.global_nodes:
-        lines.append("## Global Notes (nodes)")
-        lines.append("```json")
-        lines.append(
-            json.dumps(
-                [node.model_dump(mode="json") for node in plan.global_nodes],
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
-        lines.append("```")
-        lines.append("")
-    if plan.global_blocks:
-        lines.append("## Global Notes (blocks)")
-        for block in plan.global_blocks:
-            lines.append(f"### {block.title or block.key}")
-            lines.append(block.content_html)
-            lines.append("")
-
-    lines.append("## Phases")
-    lines.append("")
-    for phase in plan.phases:
-        lines.append(f"### {phase.title} ({phase.start_date} -> {phase.end_date})")
-        if phase.summary:
-            lines.append(f"_Summary_: {phase.summary}")
-        if phase.nodes:
-            lines.append("```json")
-            lines.append(
-                json.dumps(
-                    [node.model_dump(mode="json") for node in phase.nodes],
-                    indent=2,
-                    ensure_ascii=False,
-                )
-            )
-            lines.append("```")
-        for block in phase.blocks:
-            lines.append(f"#### {block.title or block.key}")
-            lines.append(block.content_html)
-        lines.append("")
-
-    return "\n".join(lines).strip()
-
-
-def _compact_html_fragment(value: str, *, limit: int = 360) -> str:
-    text = " ".join(_HTML_TAG_RE.sub(" ", value).split())
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "..."
-
-
-def _append_compact_block_context(lines: list[str], blocks: list[Any], *, prefix: str, limit: int):
-    for block in blocks[:limit]:
-        content = _compact_html_fragment(block.content_html)
-        if content:
-            lines.append(f"- {prefix}{block.title or block.key}: {content}")
-
-
-def _weekly_day_details(day: Any) -> list[str | None]:
-    return [
-        str(day.date),
-        day.workout_title or day.day_label or "Rest / no primary workout",
-        f"focus={day.focus_type}" if day.focus_type else None,
-        f"intensity={day.estimated_intensity}" if day.estimated_intensity else None,
-        f"duration={day.estimated_duration_min} min" if day.estimated_duration_min is not None else None,
-        f"distance={day.primary_distance_km} km" if day.primary_distance_km is not None else None,
-        "completed=true" if day.is_completed else None,
-    ]
-
-
-def _append_weekly_day_context(lines: list[str], day: Any):
-    lines.append(f"- {' | '.join(detail for detail in _weekly_day_details(day) if detail)}")
-    if day.readiness_note:
-        lines.append(f"  - Readiness: {day.readiness_note}")
-    for block in day.blocks[:2]:
-        content = _compact_html_fragment(block.content_html)
-        if content:
-            lines.append(f"  - {block.title or block.key}: {content}")
-
-
-def _render_weekly_plan_blocks_as_markdown(plan: UiWeeklyPlan) -> str:
-    # Best-effort compact context for continuity. Keep day-level intent and
-    # intensity visible without replaying the full rendered UI payload.
-    lines: list[str] = []
-    lines.append("# Active Weekly Plan (from stored UI blocks)")
-    lines.append("")
-    if plan.plan_brief:
-        lines.append(f"- Brief: {plan.plan_brief}")
-    if plan.created_at:
-        lines.append(f"- Created at: {plan.created_at}")
-    if plan.version:
-        lines.append(f"- Version: {plan.version}")
-    lines.append("")
-
-    if plan.global_blocks:
-        lines.append("## Global Notes")
-        _append_compact_block_context(lines, plan.global_blocks, prefix="", limit=3)
-        lines.append("")
-
-    for week in plan.weeks:
-        week_label = week.week_label or week.week_theme or week.week_id
-        lines.append(f"## {week_label} ({week.start_date} -> {week.end_date})")
-        if week.week_theme and week.week_theme != week_label:
-            lines.append(f"- Theme: {week.week_theme}")
-        _append_compact_block_context(lines, week.notes_blocks, prefix="Week note - ", limit=2)
-        for day in week.days:
-            _append_weekly_day_context(lines, day)
-        lines.append("")
-
-    return "\n".join(lines).strip()
-
-
 def _job_progress_steps(job: object) -> list[dict[str, Any]] | None:
     return cast("list[dict[str, Any]] | None", getattr(job, "progress_steps", None))
-
-
-def _upsert_active_results(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    source_job_id: uuid.UUID,
-    result: dict,
-) -> None:
-    season_plan_reused = bool(result.get("season_plan_reused", False))
-
-    analysis_blocks = result.get("analysis_blocks")
-    season_plan_blocks = result.get("season_plan_blocks")
-    weekly_plan_blocks = result.get("weekly_plan_blocks")
-
-    if analysis_blocks is None or season_plan_blocks is None or weekly_plan_blocks is None:
-        logger.warning(
-            "Skipping active plan upsert for job %s (missing blocks)",
-            source_job_id,
-        )
-        return
-
-    analysis_data = _as_json_dict(_sanitize_for_db(analysis_blocks.model_dump(mode="json")))
-    season_plan_data = _as_json_dict(_sanitize_for_db(season_plan_blocks.model_dump(mode="json")))
-    weekly_plan_data = _as_json_dict(_sanitize_for_db(weekly_plan_blocks.model_dump(mode="json")))
-
-    expert_context = _extract_expert_context(result)
-
-    active_analysis = db.execute(select(ActiveAnalysis).where(ActiveAnalysis.user_id == user_id)).scalar_one_or_none()
-    if active_analysis:
-        next_analysis_version = active_analysis.version + 1
-        active_analysis.version = next_analysis_version
-        analysis_data["version"] = next_analysis_version
-        active_analysis.analysis_data = analysis_data
-        active_analysis.expert_context = expert_context
-        active_analysis.source_job_id = source_job_id
-    else:
-        analysis_data["version"] = 1
-        db.add(
-            ActiveAnalysis(
-                user_id=user_id,
-                version=1,
-                analysis_data=analysis_data,
-                expert_context=expert_context,
-                source_job_id=source_job_id,
-            )
-        )
-
-    active_season_plan = db.execute(
-        select(ActiveSeasonPlan).where(ActiveSeasonPlan.user_id == user_id)
-    ).scalar_one_or_none()
-    if active_season_plan:
-        if season_plan_reused:
-            logger.info("Season plan reused; leaving active_season_plan unchanged (user_id=%s)", user_id)
-        else:
-            next_season_version = active_season_plan.version + 1
-            active_season_plan.version = next_season_version
-            season_plan_data["version"] = next_season_version
-            active_season_plan.plan_data = season_plan_data
-            active_season_plan.source_job_id = source_job_id
-    else:
-        season_plan_data["version"] = 1
-        db.add(
-            ActiveSeasonPlan(
-                user_id=user_id,
-                version=1,
-                plan_data=season_plan_data,
-                source_job_id=source_job_id,
-            )
-        )
-
-    active_weekly_plan = db.execute(
-        select(ActiveWeeklyPlan).where(ActiveWeeklyPlan.user_id == user_id)
-    ).scalar_one_or_none()
-    if active_weekly_plan:
-        next_weekly_version = active_weekly_plan.version + 1
-        active_weekly_plan.version = next_weekly_version
-        weekly_plan_data["version"] = next_weekly_version
-        active_weekly_plan.plan_data = weekly_plan_data
-        active_weekly_plan.source_job_id = source_job_id
-    else:
-        weekly_plan_data["version"] = 1
-        db.add(
-            ActiveWeeklyPlan(
-                user_id=user_id,
-                version=1,
-                plan_data=weekly_plan_data,
-                source_job_id=source_job_id,
-            )
-        )
 
 
 def _is_initial_draft_run(job: AnalysisJob) -> bool:
@@ -867,297 +275,13 @@ def _cancel_if_requested(
 
 def _mark_job_running(db: Session, *, job: AnalysisJob, celery_task_id: str) -> None:
     job.status = JobStatus.RUNNING.value
-    job.config = {**job.config, "_celery_task_id": celery_task_id}
-    job.progress_steps = normalize_analysis_progress_steps(_job_progress_steps(job) or initial_analysis_progress_steps())
-    db.commit()
-
-
-def _load_training_sources(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    job_id: str,
-    activities_days: int,
-    metrics_days: int,
-) -> tuple[dict[str, Any], list[str]]:
-    sources: dict[str, Any] = {}
-    extraction_errors: list[str] = []
-
-    strava_creds = db.execute(select(StravaCredentials).where(StravaCredentials.user_id == user_id)).scalar_one_or_none()
-    if strava_creds:
-        try:
-            sources["strava"] = _extract_strava_snapshot(
-                db,
-                user_id=user_id,
-                activities_days=activities_days,
-                metrics_days=metrics_days,
-            )
-        except Exception:
-            logger.warning("Strava extraction failed for job %s; continuing with other sources", job_id, exc_info=True)
-            extraction_errors.append("strava")
-
-    whoop_creds = db.execute(select(WhoopCredentials).where(WhoopCredentials.user_id == user_id)).scalar_one_or_none()
-    if whoop_creds:
-        try:
-            sources["whoop"] = _extract_whoop_snapshot(
-                db,
-                user_id=user_id,
-                activities_days=activities_days,
-                metrics_days=metrics_days,
-            )
-        except Exception:
-            logger.warning("Whoop extraction failed for job %s; continuing with other sources", job_id, exc_info=True)
-            extraction_errors.append("whoop")
-
-    return sources, extraction_errors
-
-
-def _build_training_data(*, sources: dict[str, Any], extraction_errors: list[str]) -> dict[str, Any]:
-    return {
-        "generated_at_utc": datetime.now(UTC).isoformat(),
-        "sources": sources,
-        "source_gaps": sorted(set(extraction_errors)),
-        "evidence_profile": build_evidence_profile(available_sources=sources.keys()),
-    }
-
-
-def _resolve_run_calendar(config: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]]:
-    now = datetime.now()
-    start_date_value = config.get("plan_start_date")
-    plan_start = datetime.strptime(start_date_value, "%Y-%m-%d") if start_date_value else now
-    current_date = {"date": now.strftime("%Y-%m-%d"), "day_name": now.strftime("%A")}
-    week_dates = [
-        {
-            "date": (plan_start + timedelta(days=offset)).strftime("%Y-%m-%d"),
-            "day_name": (plan_start + timedelta(days=offset)).strftime("%A"),
-        }
-        for offset in range(28)
-    ]
-    return current_date, week_dates
-
-
-def _athlete_profile_json(config: dict[str, Any]) -> str:
-    athlete_profile = config.get("athlete_profile") or {}
-    try:
-        return json.dumps(athlete_profile, ensure_ascii=False, sort_keys=True, indent=2)
-    except Exception:
-        return str(athlete_profile)
-
-
-def _build_workflow_contexts(config: dict[str, Any]) -> tuple[str, str]:
-    persisted_context = _ATHLETE_PROFILE_CONTEXT_PROMPT.format(athlete_profile_json=_athlete_profile_json(config))
-    analysis_override_context, planning_override_context = _build_run_override_contexts(config.get("run_overrides"))
-    analysis_context = (
-        persisted_context + ("\n\n" + analysis_override_context if analysis_override_context else "")
-    ).strip()
-    planning_context = (
-        persisted_context + ("\n\n" + planning_override_context if planning_override_context else "")
-    ).strip()
-    return analysis_context, planning_context
-
-
-def _validate_existing_season_plan(plan_data: object, *, user_id: uuid.UUID) -> UiSeasonPlan | None:
-    if not isinstance(plan_data, dict):
-        return None
-    try:
-        return UiSeasonPlan.model_validate(plan_data)
-    except Exception:
-        logger.warning("Failed to validate existing season plan blocks for user %s", user_id, exc_info=True)
-        return None
-
-
-def _season_markdown_from_source_job(db: Session, *, source_job_id: object) -> str | None:
-    if source_job_id is None:
-        return None
-    source_job = db.execute(select(AnalysisJob).where(AnalysisJob.id == source_job_id)).scalar_one_or_none()
-    if source_job is None:
-        return None
-    source_result = getattr(source_job, "result", None)
-    if not isinstance(source_result, dict):
-        return None
-    return _extract_plan_markdown(source_result.get("season_plan"))
-
-
-def _load_existing_season_context(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    is_initial_draft_run: bool,
-) -> tuple[str | None, UiSeasonPlan | None]:
-    if is_initial_draft_run:
-        return None, None
-    try:
-        active_season = db.execute(select(ActiveSeasonPlan).where(ActiveSeasonPlan.user_id == user_id)).scalar_one_or_none()
-        if active_season is None:
-            return None, None
-
-        season_blocks = _validate_existing_season_plan(getattr(active_season, "plan_data", None), user_id=user_id)
-        season_markdown = _season_markdown_from_source_job(
-            db,
-            source_job_id=getattr(active_season, "source_job_id", None),
-        )
-        if season_markdown is None and season_blocks is not None:
-            season_markdown = _render_season_plan_blocks_as_markdown(season_blocks)
-        return season_markdown, season_blocks
-    except Exception:
-        logger.warning("Failed to load existing season plan for user %s", user_id, exc_info=True)
-        return None, None
-
-
-def _load_existing_weekly_context(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    is_initial_draft_run: bool,
-) -> str | None:
-    if is_initial_draft_run:
-        return None
-    try:
-        active_weekly = db.execute(select(ActiveWeeklyPlan).where(ActiveWeeklyPlan.user_id == user_id)).scalar_one_or_none()
-        if active_weekly is None or not isinstance(getattr(active_weekly, "plan_data", None), dict):
-            return None
-        weekly_plan_blocks = UiWeeklyPlan.model_validate(active_weekly.plan_data)
-        return _render_weekly_plan_blocks_as_markdown(weekly_plan_blocks)
-    except Exception:
-        logger.warning("Failed to load existing weekly plan for user %s", user_id, exc_info=True)
-        return None
-
-
-def _build_progress_callbacks(db: Session, *, job: AnalysisJob, job_id: str):
-    async def node_started_callback(node_name: str):
-        current_step = next(
-            (
-                step
-                for step in (_job_progress_steps(job) or [])
-                if isinstance(step, dict) and step.get("node") == node_name
-            ),
-            None,
-        )
-        if isinstance(current_step, dict) and current_step.get("status") == "active":
-            return
-        updated_steps, current_label = mark_analysis_progress_step_started(
-            _job_progress_steps(job),
-            node_name=node_name,
-            timestamp=datetime.now(UTC),
-        )
-        job.progress_steps = updated_steps
-        db.add(job)
-        db.commit()
-        logger.info("Job %s progress -> %s (%s)", job_id, node_name, current_label)
-
-    async def node_completed_callback(node_name: str):
-        current_step = next(
-            (
-                step
-                for step in (_job_progress_steps(job) or [])
-                if isinstance(step, dict) and step.get("node") == node_name
-            ),
-            None,
-        )
-        if isinstance(current_step, dict) and current_step.get("status") == "completed":
-            return
-        job.progress_steps = mark_analysis_progress_step_completed(
-            _job_progress_steps(job),
-            node_name=node_name,
-            timestamp=datetime.now(UTC),
-        )
-        db.add(job)
-        db.commit()
-        logger.info("Job %s completed -> %s", job_id, node_name)
-
-    async def node_timing_callback(node_name: str, duration_seconds: float):
-        job.progress_steps = record_analysis_step_timing(
-            _job_progress_steps(job),
-            node_name=node_name,
-            duration_seconds=duration_seconds,
-            timestamp=datetime.now(UTC),
-        )
-        db.add(job)
-        db.commit()
-        logger.info("Job %s timing -> %s (%.3fs)", job_id, node_name, duration_seconds)
-
-    return node_started_callback, node_completed_callback, node_timing_callback
-
-
-def _cost_totals_from_result(result: dict[str, Any]) -> tuple[float, int]:
-    cost_total = float(
-        result.get("cost_summary", {}).get("total_cost_usd", 0.0)
-        or result.get("execution_metadata", {}).get("total_cost_usd", 0.0)
-        or sum(cost.get("total_cost", 0) for cost in result.get("costs", []))
+    job.config = with_attempt_started_at(
+        {**job.config, "_celery_task_id": celery_task_id},
+        started_at=datetime.now(UTC),
     )
-    total_tokens = int(
-        result.get("cost_summary", {}).get("total_tokens", 0)
-        or result.get("execution_metadata", {}).get("total_tokens", 0)
+    job.progress_steps = normalize_analysis_progress_steps(
+        _job_progress_steps(job) or initial_head_coach_progress_steps()
     )
-    return cost_total, total_tokens
-
-
-def _serializable_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "analysis_blocks": (
-            analysis_blocks.model_dump(mode="json") if (analysis_blocks := result.get("analysis_blocks")) is not None else None
-        ),
-        "weekly_plan_blocks": (
-            weekly_blocks.model_dump(mode="json") if (weekly_blocks := result.get("weekly_plan_blocks")) is not None else None
-        ),
-        "season_plan_blocks": (
-            season_blocks.model_dump(mode="json") if (season_blocks := result.get("season_plan_blocks")) is not None else None
-        ),
-        "season_plan": result.get("season_plan"),
-        "weekly_plan": result.get("weekly_plan"),
-        "execution_id": result.get("execution_id"),
-        "cost_summary": result.get("cost_summary"),
-        "execution_metadata": result.get("execution_metadata"),
-    }
-
-
-def _record_analysis_cost(db: Session, *, job: AnalysisJob, result: dict[str, Any]) -> None:
-    execution_trace_metadata = trace_metadata_from_execution_metadata(
-        cast("dict[str, Any] | None", result.get("execution_metadata")),
-        default_run_name="paced_coach_workflow",
-    )
-    ai_cost_snapshot = capture_langsmith_run_costs(execution_trace_metadata)
-    if ai_cost_snapshot.cost_status == "missing":
-        ai_cost_snapshot = snapshot_from_legacy_cost_summary(cast("dict[str, Any] | None", result.get("cost_summary")))
-    db.add(
-        build_ai_run_cost_record(
-            user_id=job.user_id,
-            thread_id=None,
-            feature="analysis_workflow",
-            source_type="analysis_job",
-            source_id=job.id,
-            run_name="paced_coach_workflow",
-            trace_metadata=execution_trace_metadata,
-            cost_snapshot=ai_cost_snapshot,
-            source_metadata={"execution_id": result.get("execution_id")},
-        )
-    )
-
-
-def _complete_analysis_job(
-    db: Session,
-    *,
-    job: AnalysisJob,
-    job_uuid: uuid.UUID,
-    result: dict[str, Any],
-    finalize_initial_draft_claim: bool,
-) -> None:
-    cost_total, total_tokens = _cost_totals_from_result(result)
-    job.status = JobStatus.COMPLETED.value
-    job.result = _as_json_dict(_sanitize_for_db(_serializable_analysis_result(result)))
-    job.cost_usd = cost_total
-    job.tokens_used = total_tokens
-    _record_analysis_cost(db, job=job, result=result)
-    job.completed_at = datetime.now()
-    job.progress_steps = complete_active_analysis_progress_steps(
-        _job_progress_steps(job),
-        timestamp=datetime.now(UTC),
-    )
-
-    _upsert_active_results(db, user_id=job.user_id, source_job_id=job_uuid, result=result)
-    _record_full_run_consumption(db, user_id=job.user_id, job_id=job_uuid)
-    if finalize_initial_draft_claim:
-        _finalize_initial_draft_claim(db, user_id=job.user_id, job_id=job_uuid)
     db.commit()
 
 
@@ -1189,6 +313,20 @@ def _prepare_analysis_job_for_run(
     celery_task_id: str,
     is_initial_draft_run: bool,
 ) -> bool:
+    if job.status in {JobStatus.COMPLETED.value, JobStatus.FAILED.value}:
+        logger.info("Job %s already reached terminal status %s", job_id, job.status)
+        return False
+    if job.status == JobStatus.AWAITING_INPUT.value and not isinstance(
+        (job.config or {}).get("_head_coach_resume"),
+        dict,
+    ):
+        logger.info("Job %s remains paused awaiting athlete input", job_id)
+        return False
+    if job.status == JobStatus.RUNNING.value:
+        active_task_id = str((job.config or {}).get("_celery_task_id") or "")
+        if not active_task_id or active_task_id != celery_task_id:
+            logger.info("Job %s is already owned by Celery task %s", job_id, active_task_id or "unknown")
+            return False
     if job.status == JobStatus.CANCELLED.value:
         logger.info("Job %s cancelled before start", job_id)
         _finish_job_as_cancelled(
@@ -1212,112 +350,303 @@ def _prepare_analysis_job_for_run(
     return True
 
 
-def _run_analysis_workflow_for_job(
+class _HeadCoachRunStopped(RuntimeError):
+    pass
+
+
+_HEAD_COACH_PHASE_NODES: dict[LifecyclePhase, str] = {
+    LifecyclePhase.UNDERSTANDING_CONTEXT: "head_coach_understanding_context",
+    LifecyclePhase.DESIGNING_STRATEGY: "head_coach_designing_strategy",
+    LifecyclePhase.REVIEWING_CONSTRAINTS: "head_coach_reviewing_constraints",
+    LifecyclePhase.AWAITING_INPUT: "head_coach_awaiting_input",
+    LifecyclePhase.BUILDING_EXECUTION_BLOCK: "head_coach_building_execution_block",
+    LifecyclePhase.SAVING_PLAN: "head_coach_saving_plan",
+}
+
+
+def _load_head_coach_prior_plan(
     db: Session,
     *,
-    job: AnalysisJob,
-    job_uuid: uuid.UUID,
-    job_id: str,
+    model: type[ActiveSeasonPlan] | type[ActiveWeeklyPlan],
+    user_id: uuid.UUID,
     is_initial_draft_run: bool,
 ) -> dict[str, Any] | None:
-    if _cancel_if_requested(
-        db,
-        job=job,
-        job_uuid=job_uuid,
-        job_id=job_id,
-        reason="cancellation requested; stopping early",
-        release_initial_draft_claim=is_initial_draft_run,
-    ):
+    if is_initial_draft_run:
         return None
+    row = db.execute(select(model).where(model.user_id == user_id)).scalar_one_or_none()
+    plan_data = getattr(row, "plan_data", None)
+    return cast("dict[str, Any]", plan_data) if isinstance(plan_data, dict) else None
 
-    config = job.config
-    activities_days = int(config.get("activities_days", 7) or 7)
-    metrics_days = int(config.get("metrics_days", 14) or 14)
-    sources, extraction_errors = _load_training_sources(
-        db,
-        user_id=job.user_id,
-        job_id=job_id,
-        activities_days=activities_days,
-        metrics_days=metrics_days,
+
+def _load_head_coach_memory(db: Session, *, user_id: uuid.UUID) -> dict[str, Any]:
+    memory_summary = db.execute(select(User.memory_summary).where(User.id == user_id)).scalar_one_or_none()
+    return {"memory_summary": memory_summary or ""}
+
+
+async def _run_head_coach_workflow_for_job(  # noqa: C901 - transaction branches enforce atomic ownership
+    *,
+    job_uuid: uuid.UUID,
+    user_id: uuid.UUID,
+    config: dict[str, Any],
+    prior_season_plan: dict[str, Any] | None,
+    prior_weekly_plan: dict[str, Any] | None,
+    coach_memory: dict[str, Any],
+    is_initial_draft_run: bool,
+) -> dict[str, Any]:
+    from api.deps import async_session_maker
+
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required for Head Coach checkpointing")
+    provider = get_process_checkpointer_provider(database_url=database_url)
+
+    async def ensure_active() -> None:
+        async with async_session_maker() as async_db:
+            row = await async_db.execute(
+                select(AnalysisJob.status, AnalysisJob.cancel_requested_at).where(AnalysisJob.id == job_uuid)
+            )
+            current = row.one_or_none()
+            if current is None or current.status != JobStatus.RUNNING.value or current.cancel_requested_at is not None:
+                raise _HeadCoachRunStopped("Head Coach run is no longer active")
+
+    async def report_status(phase: LifecyclePhase) -> None:
+        async with async_session_maker() as async_db:
+            row = await async_db.execute(select(AnalysisJob).where(AnalysisJob.id == job_uuid).with_for_update())
+            current_job = row.scalar_one_or_none()
+            if current_job is None or current_job.status not in {
+                JobStatus.RUNNING.value,
+                JobStatus.COMPLETED.value,
+            }:
+                return
+            now = datetime.now(UTC)
+            steps = complete_active_analysis_progress_steps(current_job.progress_steps, timestamp=now)
+            node_name = _HEAD_COACH_PHASE_NODES.get(phase)
+            if node_name is not None:
+                steps, _ = mark_analysis_progress_step_started(steps, node_name=node_name, timestamp=now)
+            current_job.progress_steps = steps
+            async_db.add(current_job)
+            await async_db.commit()
+
+    async def commit_artifacts(
+        season: SeasonStrategyArtifactV3,
+        execution: ExecutionPlanArtifactV3,
+    ) -> None:
+        async with async_session_maker() as async_db:
+            async with async_db.begin():
+                await async_db.execute(
+                    text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                    {"lock_key": derive_advisory_lock_key(f"owner:{user_id}:active-plan")},
+                )
+                job_row = await async_db.execute(
+                    select(AnalysisJob).where(AnalysisJob.id == job_uuid).with_for_update()
+                )
+                current_job = job_row.scalar_one_or_none()
+                if current_job is None:
+                    raise _HeadCoachRunStopped("Head Coach result cannot be committed for an inactive job")
+
+                season_row = (
+                    await async_db.execute(
+                        select(ActiveSeasonPlan).where(ActiveSeasonPlan.user_id == user_id).with_for_update()
+                    )
+                ).scalar_one_or_none()
+                weekly_row = (
+                    await async_db.execute(
+                        select(ActiveWeeklyPlan).where(ActiveWeeklyPlan.user_id == user_id).with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if _artifact_commit_already_completed(
+                    current_job=current_job,
+                    season_row=season_row,
+                    weekly_row=weekly_row,
+                    job_uuid=job_uuid,
+                ):
+                    return
+                season_version = (season_row.version + 1) if season_row is not None else 1
+                weekly_version = (weekly_row.version + 1) if weekly_row is not None else 1
+                season_data = _as_json_dict(_sanitize_for_db(season.model_dump(mode="json")))
+                weekly_data = _as_json_dict(_sanitize_for_db(execution.model_dump(mode="json")))
+                season_data["version"] = season_version
+                weekly_data["version"] = weekly_version
+
+                _upsert_active_plan_rows(
+                    async_db=async_db,
+                    user_id=user_id,
+                    job_uuid=job_uuid,
+                    season_row=season_row,
+                    weekly_row=weekly_row,
+                    season_data=season_data,
+                    weekly_data=weekly_data,
+                    season_version=season_version,
+                    weekly_version=weekly_version,
+                )
+
+                thread = (
+                    await async_db.execute(
+                        select(CoachThread)
+                        .where(CoachThread.user_id == user_id, CoachThread.status == "active")
+                        .order_by(CoachThread.updated_at.desc(), CoachThread.created_at.desc())
+                        .limit(1)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if thread is None:
+                    thread = CoachThread(user_id=user_id, latest_seq=0, status="active", title="Head Coach")
+                    async_db.add(thread)
+                    await async_db.flush()
+                thread.latest_seq += 1
+                thread.last_full_run_job_id = job_uuid
+                thread.last_full_run_at = datetime.now(UTC)
+                async_db.add(
+                    CoachEvent(
+                        thread_id=thread.id,
+                        seq=thread.latest_seq,
+                        event_type="plan_decision_recorded",
+                        actor="coach",
+                        payload={
+                            "source_job_id": str(job_uuid),
+                            "season_plan_id": season.plan_id,
+                            "execution_plan_id": execution.plan_id,
+                            "season_decision": season.decision_ledger_entry.model_dump(mode="json"),
+                            "execution_decision": execution.decision_ledger_entry.model_dump(mode="json"),
+                        },
+                    )
+                )
+
+                existing_usage = (
+                    await async_db.execute(
+                        select(LocalUsageEvent).where(
+                            LocalUsageEvent.feature_key == FEATURE_FULL_RUN,
+                            LocalUsageEvent.source_type == "analysis_job",
+                            LocalUsageEvent.source_id == str(job_uuid),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing_usage is None:
+                    async_db.add(
+                        LocalUsageEvent(
+                            user_id=user_id,
+                            feature_key=FEATURE_FULL_RUN,
+                            source_type="analysis_job",
+                            source_id=str(job_uuid),
+                            consumed_at=datetime.now(UTC),
+                        )
+                    )
+                if is_initial_draft_run:
+                    claim = (
+                        await async_db.execute(
+                            select(LocalUsageEvent)
+                            .where(
+                                LocalUsageEvent.user_id == user_id,
+                                LocalUsageEvent.feature_key == FEATURE_INITIAL_DRAFT_PLAN,
+                                LocalUsageEvent.source_type == INITIAL_DRAFT_PLAN_SOURCE_TYPE,
+                            )
+                            .with_for_update()
+                        )
+                    ).scalar_one_or_none()
+                    if claim is not None:
+                        claim.payload_metadata = {
+                            **(claim.payload_metadata or {}),
+                            "state": "consumed",
+                            "analysis_job_id": str(job_uuid),
+                            "finalized_at": datetime.now(UTC).isoformat(),
+                        }
+                        claim.consumed_at = datetime.now(UTC)
+
+                existing_cost = (
+                    await async_db.execute(
+                        select(AiRunCost.id).where(
+                            AiRunCost.source_type == "analysis_job",
+                            AiRunCost.source_id == str(job_uuid),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing_cost is None:
+                    async_db.add(
+                        build_ai_run_cost_record(
+                            user_id=user_id,
+                            thread_id=thread.id,
+                            feature="initial_planning",
+                            source_type="analysis_job",
+                            source_id=job_uuid,
+                            run_name="head_coach_initial_planning",
+                            trace_metadata=None,
+                            cost_snapshot=AiRunCostSnapshot(cost_status="missing"),
+                            source_metadata={"workflow_version": "head_coach_v1"},
+                        )
+                    )
+
+                current_job.status = JobStatus.COMPLETED.value
+                current_job.result = {
+                    "analysis_blocks": None,
+                    "season_plan_blocks": season_data,
+                    "weekly_plan_blocks": weekly_data,
+                    "decision_ledger": {
+                        "season": season.decision_ledger_entry.model_dump(mode="json"),
+                        "execution": execution.decision_ledger_entry.model_dump(mode="json"),
+                    },
+                    "workflow_version": "head_coach_v1",
+                }
+                current_job.completed_at = datetime.now(UTC)
+                completed_config = {
+                    key: value
+                    for key, value in (current_job.config or {}).items()
+                    if key != "_head_coach_interrupt"
+                }
+                receipt = terminal_resume_receipt(completed_config.get("_head_coach_resume"))
+                if receipt is None:
+                    completed_config.pop("_head_coach_resume", None)
+                else:
+                    completed_config["_head_coach_resume"] = receipt
+                current_job.config = completed_config
+                current_job.progress_steps = complete_active_analysis_progress_steps(
+                    current_job.progress_steps,
+                    timestamp=datetime.now(UTC),
+                )
+
+    plan_start_date = str(config.get("plan_start_date") or datetime.now(UTC).date().isoformat())
+    context_pack = build_initial_planning_context(
+        now_utc=datetime.now(UTC),
+        athlete_name=str(config.get("athlete_name") or "Athlete"),
+        athlete_profile=cast("dict[str, Any]", config.get("athlete_profile") or {}),
+        competitions=cast("list[dict[str, Any]]", config.get("competitions") or []),
+        plan_start_date=plan_start_date,
+        run_overrides=cast("dict[str, Any]", config.get("run_overrides") or {}),
+        prior_season_plan=prior_season_plan,
+        prior_weekly_plan=prior_weekly_plan,
+        coach_memory=coach_memory,
     )
-    training_data = _build_training_data(sources=sources, extraction_errors=extraction_errors)
-    if not sources:
-        logger.info("Job %s proceeding in providerless Draft Mode", job_id)
-
-    if _cancel_if_requested(
-        db,
-        job=job,
-        job_uuid=job_uuid,
-        job_id=job_id,
-        reason="cancellation requested after data extraction; stopping",
-        release_initial_draft_claim=is_initial_draft_run,
-    ):
-        return None
-
-    current_date, week_dates = _resolve_run_calendar(config)
-    analysis_context, planning_context = _build_workflow_contexts(config)
-    existing_season_plan_md, existing_season_plan_blocks = _load_existing_season_context(
-        db,
-        user_id=job.user_id,
-        is_initial_draft_run=is_initial_draft_run,
-    )
-    if existing_season_plan_md:
-        logger.info(
-            "Loaded existing season plan for reuse (chars=%s, has_blocks=%s)",
-            len(existing_season_plan_md),
-            bool(existing_season_plan_blocks),
-        )
-
-    existing_weekly_plan_md = _load_existing_weekly_context(
-        db,
-        user_id=job.user_id,
-        is_initial_draft_run=is_initial_draft_run,
-    )
-    if existing_weekly_plan_md:
-        logger.info("Loaded existing weekly plan for transition context (chars=%s)", len(existing_weekly_plan_md))
-
-    node_started_callback, node_completed_callback, node_timing_callback = _build_progress_callbacks(
-        db,
-        job=job,
-        job_id=job_id,
-    )
-    result = asyncio.run(
-        run_complete_analysis_and_planning(
-            user_id=str(job.user_id),
-            athlete_name=config.get("athlete_name", "Athlete"),
-            training_data=training_data,
-            analysis_context=analysis_context,
-            planning_context=planning_context,
-            competitions=config.get("competitions", []),
-            current_date=current_date,
-            week_dates=week_dates,
-            plotting_enabled=_resolve_plotting_enabled(config, job_id),
-            hitl_enabled=False,
-            skip_synthesis=False,
-            existing_season_plan=existing_season_plan_md,
-            existing_season_plan_blocks=existing_season_plan_blocks,
-            existing_weekly_plan=existing_weekly_plan_md,
-            transition_context=build_training_transition_context(
-                training_data,
-                current_date=current_date,
-                existing_weekly_plan=existing_weekly_plan_md,
-            ),
-            node_started_callback=node_started_callback,
-            node_completed_callback=node_completed_callback,
-            node_timing_callback=node_timing_callback,
-        )
+    resume_payload = config.get("_head_coach_resume")
+    resume: Command | None = Command(resume=resume_payload["answer"]) if isinstance(resume_payload, dict) else None
+    return await run_initial_planning(
+        provider=provider,
+        owner_id=user_id,
+        job_id=job_uuid,
+        context_pack=context_pack,
+        planner=build_model_planner(),
+        commit=commit_artifacts,
+        resume=resume,
+        ensure_active=ensure_active,
+        status=report_status,
     )
 
-    if _cancel_if_requested(
-        db,
-        job=job,
-        job_uuid=job_uuid,
-        job_id=job_id,
-        reason="cancelled during workflow; discarding result",
-        release_initial_draft_claim=is_initial_draft_run,
-    ):
-        return None
-    return result
+
+def _persist_head_coach_interrupt(db: Session, *, job_uuid: uuid.UUID, result: dict[str, Any]) -> bool:
+    interrupts = result.get("__interrupt__")
+    if not isinstance(interrupts, tuple | list) or not interrupts:
+        return False
+    value = getattr(interrupts[0], "value", None)
+    if not isinstance(value, dict):
+        raise RuntimeError("Head Coach returned an invalid clarification interrupt")
+    current_job = db.execute(select(AnalysisJob).where(AnalysisJob.id == job_uuid).with_for_update()).scalar_one()
+    if current_job.status != JobStatus.RUNNING.value:
+        raise _HeadCoachRunStopped("Head Coach clarification belongs to an inactive job")
+    current_job.status = JobStatus.AWAITING_INPUT.value
+    current_job.config = {
+        **(current_job.config or {}),
+        "_head_coach_interrupt": _as_json_dict(_sanitize_for_db(value)),
+    }
+    db.commit()
+    return True
 
 
 def _handle_analysis_task_exception(
@@ -1329,13 +658,21 @@ def _handle_analysis_task_exception(
     exc: Exception,
     is_initial_draft_run: bool,
 ) -> None:
+    db.rollback()
+    db.expire_all()
+    committed_status = db.execute(select(AnalysisJob.status).where(AnalysisJob.id == job.id)).scalar_one_or_none()
+    if committed_status == JobStatus.COMPLETED.value:
+        logger.warning(
+            "Ignoring post-commit Head Coach failure for job %s; the domain commit is authoritative",
+            job_id,
+        )
+        return
     if _should_defer_failure_to_autoretry(self, exc):
         logger.warning(
             "Analysis task hit retriable error for job %s; leaving claim pending until retry exhaustion",
             job_id,
             exc_info=True,
         )
-        db.rollback()
         raise exc
     logger.exception("Analysis task failed for job %s: %s", job_id, exc)
     _fail_analysis_job(
@@ -1359,7 +696,9 @@ def run_analysis_task(self, job_id: str):
 
     with get_sync_session() as db:
         job_uuid = uuid.UUID(job_id)
-        job = db.execute(select(AnalysisJob).where(AnalysisJob.id == job_uuid)).scalar_one_or_none()
+        job = db.execute(
+            select(AnalysisJob).where(AnalysisJob.id == job_uuid).with_for_update()
+        ).scalar_one_or_none()
 
         if not job:
             logger.error("Job %s not found", job_id)
@@ -1378,25 +717,42 @@ def run_analysis_task(self, job_id: str):
             return
 
         try:
-            result = _run_analysis_workflow_for_job(
+            config = dict(job.config or {})
+            prior_season_plan = _load_head_coach_prior_plan(
                 db,
-                job=job,
-                job_uuid=job_uuid,
-                job_id=job_id,
+                model=ActiveSeasonPlan,
+                user_id=job.user_id,
                 is_initial_draft_run=is_initial_draft_run,
             )
-            if result is None:
-                return
-
-            _complete_analysis_job(
+            prior_weekly_plan = _load_head_coach_prior_plan(
                 db,
-                job=job,
-                job_uuid=job_uuid,
-                result=result,
-                finalize_initial_draft_claim=is_initial_draft_run,
+                model=ActiveWeeklyPlan,
+                user_id=job.user_id,
+                is_initial_draft_run=is_initial_draft_run,
             )
+            coach_memory = _load_head_coach_memory(db, user_id=job.user_id)
+            result = _run_async_in_worker_loop(
+                _run_head_coach_workflow_for_job(
+                    job_uuid=job_uuid,
+                    user_id=job.user_id,
+                    config=config,
+                    prior_season_plan=prior_season_plan,
+                    prior_weekly_plan=prior_weekly_plan,
+                    coach_memory=coach_memory,
+                    is_initial_draft_run=is_initial_draft_run,
+                )
+            )
+            db.expire_all()
+            if _persist_head_coach_interrupt(db, job_uuid=job_uuid, result=result):
+                logger.info("Head Coach job %s is awaiting athlete input", job_id)
+                return
+            logger.info("Head Coach job completed for job %s", job_id)
+            return
 
-            logger.info("Analysis task completed for job %s", job_id)
+        except _HeadCoachRunStopped:
+            db.rollback()
+            logger.info("Head Coach job %s stopped without committing output", job_id)
+            return
 
         except SoftTimeLimitExceeded as exc:
             logger.warning("Analysis task hit soft time limit for job %s", job_id)
@@ -1419,9 +775,34 @@ def run_analysis_task(self, job_id: str):
             )
 
 
-@celery_app.task(name="worker.tasks.run_daily_coach_proactive_eval_task")
-def run_daily_coach_proactive_eval_task():
-    logger.info("Daily coach proactive eval is disabled")
+@celery_app.task(name="worker.tasks.recover_pending_analysis_dispatches_task")
+def recover_pending_analysis_dispatches_task():
+    """Re-enqueue durable dispatch intents stranded before broker delivery."""
+    cutoff = datetime.now(UTC) - timedelta(seconds=30)
+    with get_sync_session() as db:
+        job_ids = list(
+            db.execute(
+                select(AnalysisJob.id)
+                .where(
+                    AnalysisJob.status == JobStatus.PENDING.value,
+                    AnalysisJob.created_at <= cutoff,
+                    AnalysisJob.config["_workflow_version"].astext == "head_coach_v1",
+                )
+                .order_by(AnalysisJob.created_at.asc())
+                .with_for_update(skip_locked=True)
+            ).scalars()
+        )
+        db.commit()
+
+    recovered = 0
+    for job_id in job_ids:
+        try:
+            run_analysis_task.delay(str(job_id))
+            recovered += 1
+        except Exception:
+            logger.exception("Failed to recover pending analysis dispatch for job %s", job_id)
+    logger.info("Recovered %s pending analysis dispatch(es)", recovered)
+    return recovered
 
 
 async def _run_nightly_coach_memory_compaction_async():
@@ -1477,3 +858,22 @@ async def _run_coach_idempotency_cleanup_async():
 def run_coach_idempotency_cleanup_task():
     deleted = _run_async_in_worker_loop(_run_coach_idempotency_cleanup_async())
     logger.info("Coach idempotency cleanup completed deleted=%s", deleted)
+
+
+async def _run_head_coach_checkpoint_cleanup_async():
+    from api.config import get_settings
+    from api.deps import async_session_maker
+    from api.services.head_coach_checkpoint_retention import cleanup_expired_head_coach_checkpoints
+
+    settings = get_settings()
+    cutoff = datetime.now(UTC) - timedelta(days=settings.head_coach_checkpoint_retention_days)
+    async with async_session_maker() as db:
+        summary = await cleanup_expired_head_coach_checkpoints(db, cutoff=cutoff)
+        await db.commit()
+    return summary
+
+
+@celery_app.task(name="worker.tasks.run_head_coach_checkpoint_cleanup_task")
+def run_head_coach_checkpoint_cleanup_task():
+    summary = _run_async_in_worker_loop(_run_head_coach_checkpoint_cleanup_async())
+    logger.info("Head Coach checkpoint cleanup completed summary=%s", summary)

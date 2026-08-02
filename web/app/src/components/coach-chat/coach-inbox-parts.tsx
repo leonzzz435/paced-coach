@@ -1,12 +1,14 @@
 import { useMemo } from "react";
 
 import HtmlSnippet from "@/components/html_snippet";
+import SemanticBlock from "@/components/plan-viewer/versioned/semantic-block-v3";
+import type { WeeklyPlanV3 } from "@/components/plan-viewer/types";
 import type { CoachThreadSignals } from "@/lib/coach/inbox";
 import type { CoachThreadMessage, CoachTurnResponse } from "@/lib/types/coach";
 import type { CoachQuota } from "@/lib/types/quota";
 import type { UiDayPlan, UiHtmlBlock, UiWeekPlan, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 
-export type BusyAction = "accept" | "reject" | "recap" | "send" | "archive";
+export type BusyAction = "accept" | "reject" | "send" | "archive";
 export type InboxView = "thread_list" | "conversation";
 
 export type CoachTurnStatusEvent = {
@@ -23,10 +25,10 @@ export const COACH_STREAM_DONE_READ_TIMEOUT_MS = 5000;
 export const COACH_NAME = "Paced Coach";
 export const COACH_LABEL = "Adaptive endurance guidance";
 export const COACH_DESCRIPTION =
-  "Ask for block adjustments, recovery guidance, and race strategy — every answer grounded in your complete training history.";
+  "Ask for block adjustments, scheduling guidance, and race strategy — grounded in your declared context and active plan.";
 export const COACH_INITIALS = "PC";
 export const COACH_QUICK_PROMPTS = [
-  "How was my recovery this week?",
+  "Help me reflect on this training week.",
   "Can I swap tomorrow's workout?",
   "Am I on track for my next race?",
   "What should I prioritize this week?",
@@ -35,14 +37,6 @@ export const COACH_QUICK_PROMPTS = [
 const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 const FULL_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" });
 const TOOL_LABELS: Record<string, string> = {
-  get_training_snapshot: "training snapshot",
-  get_recent_activities: "recent activities",
-  get_activity_detail: "activity details",
-  get_training_load_history: "training load trends",
-  get_recovery_readiness_signals: "recovery readiness",
-  get_expert_analysis_summary: "analysis summary",
-  get_expert_output: "expert insights",
-  get_current_analysis: "current analysis",
   get_current_weekly_plan: "training block",
   get_current_season_plan: "season roadmap",
   get_upcoming_competitions: "race calendar",
@@ -53,6 +47,12 @@ const REJECT_REASON_SUGGESTIONS = [
   "Recovery is lower than expected",
   "I prefer a different workout option",
 ] as const;
+
+type WeeklyPlanSnapshot = UiWeeklyPlan | WeeklyPlanV3;
+
+function isV3Plan(plan: WeeklyPlanSnapshot | null | undefined): plan is WeeklyPlanV3 {
+  return plan?.schema_version === 3;
+}
 
 export class CoachStreamServerError extends Error {}
 export type CoachTurnSseReadOptions = {
@@ -303,6 +303,12 @@ type LocatedDay = {
   day: UiDayPlan;
 };
 
+type V3Week = WeeklyPlanV3["weeks"][number];
+type V3Day = V3Week["days"][number];
+type V3Session = V3Day["sessions"][number];
+type LocatedV3Day = { week: V3Week; day: V3Day };
+type LocatedV3Session = LocatedV3Day & { session: V3Session };
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
@@ -343,7 +349,11 @@ function formatDayDateLabel(dateValue: string | undefined): string | null {
   return FULL_DATE_FORMATTER.format(parsed);
 }
 
-function summarizeProposalOps(ops: Array<Record<string, unknown>> | undefined): ProposalDiffSummary {
+function summarizeProposalOps(
+  ops: Array<Record<string, unknown>> | undefined,
+  beforePlan?: WeeklyPlanSnapshot | null,
+  afterPlan?: WeeklyPlanSnapshot | null,
+): ProposalDiffSummary {
   if (!ops || ops.length === 0) return { dayIds: [], weekIds: [], items: [] };
 
   const daySet = new Set<string>();
@@ -435,6 +445,57 @@ function summarizeProposalOps(ops: Array<Record<string, unknown>> | undefined): 
       continue;
     }
 
+    if (opType === "update_day_fields_v3") {
+      const dayId = asString(op["day_id"]) ?? "unknown day";
+      daySet.add(dayId);
+      const changes = ["label", "focus_type", "intensity", "total_duration_min"].filter((field) => hasOwnField(op, field));
+      items.push({
+        scope: "day",
+        target: dayId,
+        action: "Update day fields",
+        detail: changes.length > 0 ? changes.join(", ") : "metadata",
+      });
+      continue;
+    }
+
+    if (opType === "update_session_fields_v3") {
+      const sessionId = asString(op["session_id"]) ?? "unknown session";
+      const located = findV3Session(afterPlan, sessionId) ?? findV3Session(beforePlan, sessionId);
+      if (located) daySet.add(located.day.day_id);
+      const changes = ["title", "objective_markdown", "prescription_markdown", "duration_min", "intensity", "distance_km"]
+        .filter((field) => hasOwnField(op, field));
+      items.push({
+        scope: "plan",
+        target: located?.session.title ?? sessionId,
+        action: "Update session",
+        detail: changes.length > 0 ? changes.join(", ") : "session fields",
+      });
+      continue;
+    }
+
+    if (opType === "replace_semantic_block_v3") {
+      const containerId = asString(op["container_id"]) ?? "unknown container";
+      const blockId = asString(op["block_id"]) ?? "unknown block";
+      const separatorIndex = containerId.indexOf(":");
+      const containerType = separatorIndex >= 0 ? containerId.slice(0, separatorIndex) : "container";
+      const targetId = separatorIndex >= 0 ? containerId.slice(separatorIndex + 1) : containerId;
+      if (containerType === "day" && targetId) daySet.add(targetId);
+      if (containerType === "week" && targetId) weekSet.add(targetId);
+      if (containerType === "session" && targetId) {
+        const located = findV3Session(afterPlan, targetId) ?? findV3Session(beforePlan, targetId);
+        if (located) daySet.add(located.day.day_id);
+      }
+      const replacement = asRecord(op["block"]);
+      const replacementLabel = asString(replacement?.["title"]) ?? asString(replacement?.["label"]) ?? blockId;
+      items.push({
+        scope: containerType === "day" ? "day" : containerType === "week" ? "week" : "plan",
+        target: targetId || containerId,
+        action: "Replace coaching block",
+        detail: `${replacementLabel} · ${containerType}`,
+      });
+      continue;
+    }
+
     items.push({
       scope: "plan",
       target: "overall",
@@ -466,6 +527,31 @@ function findWeek(plan: UiWeeklyPlan | null | undefined, weekId: string): UiWeek
   if (!plan) return null;
   for (const week of plan.weeks ?? []) {
     if (week.week_id === weekId) return week;
+  }
+  return null;
+}
+
+function findV3Day(plan: WeeklyPlanSnapshot | null | undefined, dayId: string): LocatedV3Day | null {
+  if (!plan || !isV3Plan(plan)) return null;
+  for (const week of plan.weeks) {
+    const day = week.days.find((candidate) => candidate.day_id === dayId);
+    if (day) return { week, day };
+  }
+  return null;
+}
+
+function findV3Week(plan: WeeklyPlanSnapshot | null | undefined, weekId: string): V3Week | null {
+  if (!plan || !isV3Plan(plan)) return null;
+  return plan.weeks.find((week) => week.week_id === weekId) ?? null;
+}
+
+function findV3Session(plan: WeeklyPlanSnapshot | null | undefined, sessionId: string): LocatedV3Session | null {
+  if (!plan || !isV3Plan(plan)) return null;
+  for (const week of plan.weeks) {
+    for (const day of week.days) {
+      const session = day.sessions.find((candidate) => candidate.session_id === sessionId);
+      if (session) return { week, day, session };
+    }
   }
   return null;
 }
@@ -626,6 +712,105 @@ function WeekNotesBeforeAfterCard({
   );
 }
 
+function V3BlockStack({ blocks, parentLabel }: { blocks: V3Day["blocks"]; parentLabel: string }) {
+  if (blocks.length === 0) {
+    return <div className="rounded-md border border-dashed border-white/10 bg-white/[0.03] px-2 py-2 text-[11px] text-[var(--text-muted)]">No coaching blocks</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {blocks.map((block) => (
+        <div key={block.block_id} className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-2">
+          <SemanticBlock block={block} parentLabel={parentLabel} sourceTab="weekly" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function V3DaySnapshot({ located, missingLabel }: { located: LocatedV3Day | null; missingLabel: string }) {
+  if (!located) {
+    return (
+      <div className="rounded-md border border-dashed border-white/10 bg-white/[0.03] px-2 py-2 text-[11px] text-[var(--text-muted)]">
+        {missingLabel}
+      </div>
+    );
+  }
+  const { day } = located;
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[var(--text-secondary)]">
+        <span className="font-semibold text-[var(--text-muted)]">Focus</span><span>{day.focus_type}</span>
+        <span className="font-semibold text-[var(--text-muted)]">Intensity</span><span>{day.intensity}</span>
+        <span className="font-semibold text-[var(--text-muted)]">Duration</span><span>{formatDurationMinutes(day.total_duration_min)}</span>
+      </div>
+      {day.sessions.length > 0 ? (
+        <div className="space-y-1">
+          {day.sessions.map((session) => (
+            <div key={session.session_id} className="rounded-md border border-violet-400/15 bg-violet-400/[0.05] px-2 py-1.5 text-[11px]">
+              <div className="font-semibold text-[var(--text-primary)]">{session.title}</div>
+              <div className="text-[var(--text-muted)]">{session.sport} · {session.duration_min} min · {session.intensity}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <V3BlockStack blocks={day.blocks} parentLabel={day.label} />
+    </div>
+  );
+}
+
+function V3DayBeforeAfterCard({ dayId, beforePlan, afterPlan }: { dayId: string; beforePlan: WeeklyPlanV3; afterPlan: WeeklyPlanV3 }) {
+  const before = findV3Day(beforePlan, dayId);
+  const after = findV3Day(afterPlan, dayId);
+  const day = after?.day ?? before?.day;
+  const week = after?.week ?? before?.week;
+  return (
+    <div className="rounded-lg border border-emerald-400/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.10),rgba(15,23,42,0.92))] p-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-emerald-100">{day?.label ?? dayId}</div>
+        <div className="text-[11px] text-emerald-200/90">{week?.title ? `${week.title} · ` : ""}{day?.date ?? ""}</div>
+      </div>
+      <div className="mt-2 grid gap-2 md:grid-cols-2">
+        <div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Before</div><V3DaySnapshot located={before} missingLabel="Day not found in base plan" /></div>
+        <div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">After</div><V3DaySnapshot located={after} missingLabel="Day removed in preview" /></div>
+      </div>
+    </div>
+  );
+}
+
+function V3WeekBeforeAfterCard({ weekId, beforePlan, afterPlan }: { weekId: string; beforePlan: WeeklyPlanV3; afterPlan: WeeklyPlanV3 }) {
+  const before = findV3Week(beforePlan, weekId);
+  const after = findV3Week(afterPlan, weekId);
+  return (
+    <div className="rounded-lg border border-emerald-400/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.10),rgba(15,23,42,0.92))] p-2">
+      <div className="text-xs font-semibold text-emerald-100">Week blocks · {after?.title ?? before?.title ?? weekId}</div>
+      <div className="mt-2 grid gap-2 md:grid-cols-2">
+        <div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Before</div><V3BlockStack blocks={before?.blocks ?? []} parentLabel={before?.title ?? weekId} /></div>
+        <div><div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">After</div><V3BlockStack blocks={after?.blocks ?? []} parentLabel={after?.title ?? weekId} /></div>
+      </div>
+    </div>
+  );
+}
+
+function PlanBeforeAfter({ dayIds, weekIds, beforePlan, afterPlan }: { dayIds: string[]; weekIds: string[]; beforePlan: WeeklyPlanSnapshot; afterPlan: WeeklyPlanSnapshot }) {
+  if (isV3Plan(beforePlan) && isV3Plan(afterPlan)) {
+    return (
+      <div className="mt-2 space-y-2">
+        {dayIds.map((dayId) => <V3DayBeforeAfterCard key={`day:${dayId}`} dayId={dayId} beforePlan={beforePlan} afterPlan={afterPlan} />)}
+        {weekIds.map((weekId) => <V3WeekBeforeAfterCard key={`week:${weekId}`} weekId={weekId} beforePlan={beforePlan} afterPlan={afterPlan} />)}
+      </div>
+    );
+  }
+  if (!isV3Plan(beforePlan) && !isV3Plan(afterPlan)) {
+    return (
+      <div className="mt-2 space-y-2">
+        {dayIds.map((dayId) => <DayBeforeAfterCard key={`day:${dayId}`} dayId={dayId} beforePlan={beforePlan} afterPlan={afterPlan} />)}
+        {weekIds.map((weekId) => <WeekNotesBeforeAfterCard key={`week:${weekId}`} weekId={weekId} beforePlan={beforePlan} afterPlan={afterPlan} />)}
+      </div>
+    );
+  }
+  return <div className="mt-2 rounded-md border border-dashed border-white/10 bg-white/[0.03] px-2 py-2 text-[11px] text-[var(--text-secondary)]">The proposal snapshots use different schema versions and cannot be compared safely.</div>;
+}
+
 export function CoachAvatar({ size = "sm" }: { size?: "sm" | "md" }) {
   const sizeClassName = size === "md" ? "h-10 w-10 text-[11px]" : "h-7 w-7 text-[10px]";
   return (
@@ -697,21 +882,25 @@ export function trackCoachEvent(eventName: string, payload: Record<string, unkno
   }
 }
 
-function labelDayTarget(dayId: string, beforePlan?: UiWeeklyPlan | null, afterPlan?: UiWeeklyPlan | null): string {
-  const before = findDay(beforePlan, dayId);
-  const after = findDay(afterPlan, dayId);
-  const dayLabel = after?.day.day_label ?? before?.day.day_label ?? null;
-  const dateLabel = formatDayDateLabel(after?.day.date ?? before?.day.date ?? dayId) ?? null;
+function labelDayTarget(dayId: string, beforePlan?: WeeklyPlanSnapshot | null, afterPlan?: WeeklyPlanSnapshot | null): string {
+  const beforeV3 = findV3Day(beforePlan, dayId);
+  const afterV3 = findV3Day(afterPlan, dayId);
+  const before = beforePlan && !isV3Plan(beforePlan) ? findDay(beforePlan, dayId) : null;
+  const after = afterPlan && !isV3Plan(afterPlan) ? findDay(afterPlan, dayId) : null;
+  const dayLabel = afterV3?.day.label ?? beforeV3?.day.label ?? after?.day.day_label ?? before?.day.day_label ?? null;
+  const dateLabel = formatDayDateLabel(afterV3?.day.date ?? beforeV3?.day.date ?? after?.day.date ?? before?.day.date ?? dayId) ?? null;
   if (dayLabel && dateLabel) return `${dayLabel} (${dateLabel})`;
   if (dayLabel) return dayLabel;
   if (dateLabel) return dateLabel;
   return dayId;
 }
 
-function labelWeekTarget(weekId: string, beforePlan?: UiWeeklyPlan | null, afterPlan?: UiWeeklyPlan | null): string {
-  const before = findWeek(beforePlan, weekId);
-  const after = findWeek(afterPlan, weekId);
-  return after?.week_label ?? before?.week_label ?? weekId;
+function labelWeekTarget(weekId: string, beforePlan?: WeeklyPlanSnapshot | null, afterPlan?: WeeklyPlanSnapshot | null): string {
+  const beforeV3 = findV3Week(beforePlan, weekId);
+  const afterV3 = findV3Week(afterPlan, weekId);
+  const before = beforePlan && !isV3Plan(beforePlan) ? findWeek(beforePlan, weekId) : null;
+  const after = afterPlan && !isV3Plan(afterPlan) ? findWeek(afterPlan, weekId) : null;
+  return afterV3?.title ?? beforeV3?.title ?? after?.week_label ?? before?.week_label ?? weekId;
 }
 
 export function ProposalCard({
@@ -732,8 +921,8 @@ export function ProposalCard({
   proposalId: string;
   ops: Array<Record<string, unknown>>;
   status: string;
-  beforePlan?: UiWeeklyPlan | null;
-  afterPlan?: UiWeeklyPlan | null;
+  beforePlan?: WeeklyPlanSnapshot | null;
+  afterPlan?: WeeklyPlanSnapshot | null;
   changesInitiallyOpen?: boolean;
   visualDiffInitiallyOpen?: boolean;
   busyAction: BusyAction | null;
@@ -743,7 +932,7 @@ export function ProposalCard({
   onAccept: () => void;
   onReject: () => void;
 }) {
-  const diffSummary = useMemo(() => summarizeProposalOps(ops), [ops]);
+  const diffSummary = useMemo(() => summarizeProposalOps(ops, beforePlan, afterPlan), [afterPlan, beforePlan, ops]);
   const dayLabels = useMemo(
     () => diffSummary.dayIds.map((dayId) => labelDayTarget(dayId, beforePlan, afterPlan)),
     [afterPlan, beforePlan, diffSummary.dayIds]
@@ -819,14 +1008,7 @@ export function ProposalCard({
         <details className="mt-2 rounded-md border border-emerald-400/20 bg-white/[0.05] p-2" open={visualDiffInitiallyOpen}>
           <summary className="cursor-pointer text-xs font-semibold text-emerald-100">Visual before vs after</summary>
           {hasVisualSnapshot && beforePlan && afterPlan ? (
-            <div className="mt-2 space-y-2">
-              {diffSummary.dayIds.map((dayId) => (
-                <DayBeforeAfterCard key={`day:${dayId}`} dayId={dayId} beforePlan={beforePlan} afterPlan={afterPlan} />
-              ))}
-              {diffSummary.weekIds.map((weekId) => (
-                <WeekNotesBeforeAfterCard key={`week:${weekId}`} weekId={weekId} beforePlan={beforePlan} afterPlan={afterPlan} />
-              ))}
-            </div>
+            <PlanBeforeAfter dayIds={diffSummary.dayIds} weekIds={diffSummary.weekIds} beforePlan={beforePlan} afterPlan={afterPlan} />
           ) : (
             <div className="mt-2 rounded-md border border-dashed border-white/10 bg-white/[0.03] px-2 py-2 text-[11px] text-[var(--text-secondary)]">
               Snapshot unavailable for this proposal (older proposals may not include full before/after payload).
@@ -908,8 +1090,8 @@ export function RecapMessage({
   busyAction: BusyAction | null;
   onAcceptProposal: (proposalId: string) => void;
   onRejectProposal: (proposalId: string) => void;
-  baseWeeklyPlan?: UiWeeklyPlan | null;
-  previewWeeklyPlan?: UiWeeklyPlan | null;
+  baseWeeklyPlan?: WeeklyPlanSnapshot | null;
+  previewWeeklyPlan?: WeeklyPlanSnapshot | null;
   proposalStatus: string;
   rejectReason: string;
   onRejectReasonChange: (value: string) => void;
@@ -934,11 +1116,15 @@ export function RecapMessage({
             <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{section.label}</div>
             <div className="mt-1 space-y-1">
               {section.blocks.map((block) => (
-                <div key={block.key} className="rounded-md bg-white/[0.04] px-2 py-1.5">
-                  {block.title ? (
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{block.title}</div>
-                  ) : null}
-                  <HtmlSnippet className="pv-content text-xs text-[var(--text-secondary)]" html={block.content_html} />
+                <div key={"content_html" in block ? block.key : block.block_id} className="rounded-md bg-white/[0.04] px-2 py-1.5">
+                  {"content_html" in block ? (
+                    <>
+                      {block.title ? <div className="mb-1 text-xs font-semibold text-[var(--text-primary)]">{block.title}</div> : null}
+                      <HtmlSnippet className="pv-content text-sm text-[var(--text-secondary)]" html={block.content_html} />
+                    </>
+                  ) : (
+                    <SemanticBlock block={block} parentLabel={section.label} sourceTab="weekly" />
+                  )}
                 </div>
               ))}
             </div>

@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { DEFAULT_DEMO_PERSONA_ID, DEMO_PERSONA_IDS, resolveDemoPersonaId, type DemoPersonaId } from "@/lib/demo/personas";
 import { SUPPORTED_SCHEMA_VERSIONS } from "@/lib/generated/version-manifest";
+import type { SeasonPlanV3, SemanticBlockV3, WeeklyPlanV3 } from "@/components/plan-viewer/types";
 import type {
   UiAnalysis,
   UiDisclosureNode,
@@ -167,10 +168,18 @@ function assertNoLeakSignals(label: string, payload: unknown): void {
 }
 
 type FixtureBundle = {
+  schemaVersion: 1;
   personaId: DemoPersonaId;
   analysis: UiAnalysis;
   season: UiSeasonPlan;
   weekly: UiWeeklyPlan;
+};
+
+type FixtureBundleV3 = {
+  schemaVersion: 3;
+  personaId: DemoPersonaId;
+  season: SeasonPlanV3;
+  weekly: WeeklyPlanV3;
 };
 
 function assertPersonaRecord<T>(value: unknown, name: string): Record<DemoPersonaId, T> {
@@ -184,7 +193,20 @@ function assertPersonaRecord<T>(value: unknown, name: string): Record<DemoPerson
   return record as Record<DemoPersonaId, T>;
 }
 
-async function loadFixtureBundles(versionDir: string): Promise<FixtureBundle[]> {
+async function loadFixtureBundles(versionDir: string, schemaVersion: number): Promise<Array<FixtureBundle | FixtureBundleV3>> {
+  if (schemaVersion === 3) {
+    const seasonModule = await import(pathToFileURL(join(versionDir, "season.ts")).href);
+    const weeklyModule = await import(pathToFileURL(join(versionDir, "weekly.ts")).href);
+    const seasonByPersona = assertPersonaRecord<SeasonPlanV3>(seasonModule.DEMO_SEASON_PLAN_BY_PERSONA, "DEMO_SEASON_PLAN_BY_PERSONA");
+    const weeklyByPersona = assertPersonaRecord<WeeklyPlanV3>(weeklyModule.DEMO_WEEKLY_PLAN_BY_PERSONA, "DEMO_WEEKLY_PLAN_BY_PERSONA");
+    return DEMO_PERSONA_IDS.map((personaId) => ({
+      schemaVersion: 3,
+      personaId,
+      season: seasonByPersona[personaId],
+      weekly: weeklyByPersona[personaId],
+    }));
+  }
+  assertCondition(schemaVersion === 1, `No fixture validator for schema v${schemaVersion}`);
   const analysisModule = await import(pathToFileURL(join(versionDir, "analysis.ts")).href);
   const seasonModule = await import(pathToFileURL(join(versionDir, "season.ts")).href);
   const weeklyModule = await import(pathToFileURL(join(versionDir, "weekly.ts")).href);
@@ -203,11 +225,42 @@ async function loadFixtureBundles(versionDir: string): Promise<FixtureBundle[]> 
   );
 
   return DEMO_PERSONA_IDS.map((personaId) => ({
+    schemaVersion: 1,
     personaId,
     analysis: analysisByPersona[personaId],
     season: seasonByPersona[personaId],
     weekly: weeklyByPersona[personaId],
   }));
+}
+
+function validateSemanticBlockV3(block: SemanticBlockV3, path: string): void {
+  assertString(block.block_id, `${path}.block_id`);
+  assertString(block.type, `${path}.type`);
+  assertCondition(!/<\s*\/?\s*[a-z][^>]*>/i.test(JSON.stringify(block)), `${path} must not contain raw HTML`);
+}
+
+function validateSeasonPlanV3(plan: SeasonPlanV3): void {
+  assertCondition(plan.schema_version === 3, "season_plan.schema_version must be 3");
+  assertString(plan.plan_id, "season_plan.plan_id");
+  assertString(plan.summary_markdown, "season_plan.summary_markdown");
+  assertArray<SeasonPlanV3["phases"][number]>(plan.phases, "season_plan.phases").forEach((phase, phaseIndex) => {
+    assertString(phase.phase_id, `season_plan.phases[${phaseIndex}].phase_id`);
+    phase.blocks.forEach((block, blockIndex) => validateSemanticBlockV3(block, `season_plan.phases[${phaseIndex}].blocks[${blockIndex}]`));
+  });
+  plan.sections.forEach((section, sectionIndex) => section.blocks.forEach((block, blockIndex) => validateSemanticBlockV3(block, `season_plan.sections[${sectionIndex}].blocks[${blockIndex}]`)));
+}
+
+function validateWeeklyPlanV3(plan: WeeklyPlanV3): void {
+  assertCondition(plan.schema_version === 3, "weekly_plan.schema_version must be 3");
+  assertCondition(plan.weeks.length === 4, "weekly_plan must contain four weeks");
+  const days = plan.weeks.flatMap((week) => week.days);
+  assertCondition(days.length === 28, "weekly_plan must contain exactly 28 days");
+  assertCondition(new Set(days.map((day) => day.day_id)).size === 28, "weekly_plan day IDs must be unique");
+  days.forEach((day, dayIndex) => {
+    assertString(day.date, `weekly_plan.days[${dayIndex}].date`);
+    day.blocks.forEach((block, blockIndex) => validateSemanticBlockV3(block, `weekly_plan.days[${dayIndex}].blocks[${blockIndex}]`));
+    day.sessions.forEach((session, sessionIndex) => session.blocks.forEach((block, blockIndex) => validateSemanticBlockV3(block, `weekly_plan.days[${dayIndex}].sessions[${sessionIndex}].blocks[${blockIndex}]`)));
+  });
 }
 
 async function run() {
@@ -231,13 +284,19 @@ async function run() {
   let validatedBundles = 0;
 
   for (const dir of versionDirs) {
-    const bundles = await loadFixtureBundles(dir);
+    const schemaVersion = Number.parseInt(dir.split("/").at(-1)?.replace("v", "") ?? "", 10);
+    const bundles = await loadFixtureBundles(dir, schemaVersion);
 
     for (const bundle of bundles) {
-      validateAnalysis(bundle.analysis);
-      validateSeasonPlan(bundle.season);
-      validateWeeklyPlan(bundle.weekly);
-      assertNoLeakSignals(`${dir}:${bundle.personaId}:analysis`, bundle.analysis);
+      if (bundle.schemaVersion === 1) {
+        validateAnalysis(bundle.analysis);
+        validateSeasonPlan(bundle.season);
+        validateWeeklyPlan(bundle.weekly);
+        assertNoLeakSignals(`${dir}:${bundle.personaId}:analysis`, bundle.analysis);
+      } else {
+        validateSeasonPlanV3(bundle.season);
+        validateWeeklyPlanV3(bundle.weekly);
+      }
       assertNoLeakSignals(`${dir}:${bundle.personaId}:season`, bundle.season);
       assertNoLeakSignals(`${dir}:${bundle.personaId}:weekly`, bundle.weekly);
       validatedBundles += 1;

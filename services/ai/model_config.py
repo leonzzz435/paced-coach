@@ -1,9 +1,8 @@
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
-from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 
 from core.config import get_config
@@ -13,6 +12,8 @@ from .ai_settings import AgentRole, ai_settings
 
 logger = logging.getLogger(__name__)
 
+ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
+
 
 @dataclass
 class ModelConfiguration:
@@ -21,83 +22,44 @@ class ModelConfiguration:
 
 
 class ModelSelector:
-    PROVIDER_PARAM_ALLOWLIST: dict[str, set[str]] = {
-        "openai": {"model", "api_key", "base_url", "include", "use_responses_api", "reasoning", "model_kwargs"},
-        "anthropic": {"model", "api_key", "max_tokens", "thinking", "output_config", "effort", "model_kwargs"},
+    PROVIDER_PARAM_ALLOWLIST = {
+        "model",
+        "api_key",
+        "base_url",
+        "include",
+        "use_responses_api",
+        "reasoning",
+        "model_kwargs",
     }
-    THINKING_DISABLED_ROLES: set[AgentRole] = {
-        AgentRole.ANALYSIS_FORMATTER,
-        AgentRole.PLAN_FORMATTER,
-    }
+    THINKING_DISABLED_ROLES: set[AgentRole] = set()
     XHIGH_REASONING_MODEL_ALIASES: set[str] = {
+        "gpt-5.6-sol-search",
         "gpt-5.5-search",
         "gpt-5.4-search",
     }
 
     ROLE_DEFAULTS: dict[AgentRole, dict[str, Any]] = {
-        AgentRole.SUMMARIZER: {
+        AgentRole.HEAD_COACH: {
             "reasoning": {"effort": "high"},
             "model_kwargs": {"text": {"verbosity": "medium"}},
         },
-        AgentRole.METRICS_EXPERT: {
+        AgentRole.SPECIALIST: {
             "reasoning": {"effort": "high"},
             "model_kwargs": {"text": {"verbosity": "medium"}},
         },
-        AgentRole.PHYSIOLOGY_EXPERT: {
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
-        },
-        AgentRole.ACTIVITY_EXPERT: {
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
-        },
-        AgentRole.SYNTHESIS: {
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "high"}},
-        },
-        AgentRole.SEASON_PLANNER: {
-            "output_token_limit": 64000,
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
-        },
-        AgentRole.WEEKLY_PLANNER: {
-            "output_token_limit": 64000,
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
-        },
-        AgentRole.WEEKLY_RECAP: {
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
-        },
-        AgentRole.DAILY_UPDATE: {
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
-        },
-        AgentRole.ANALYSIS_FORMATTER: {
-            "output_token_limit": 64000,
-            "reasoning": {"effort": "xhigh"},
+        AgentRole.UI_COMPOSER: {
+            "reasoning": {"effort": "low"},
             "model_kwargs": {"text": {"verbosity": "low"}},
         },
-        AgentRole.PLAN_FORMATTER: {
-            "output_token_limit": 64000,
-            "reasoning": {"effort": "xhigh"},
+        AgentRole.MEMORY: {
+            "reasoning": {"effort": "low"},
             "model_kwargs": {"text": {"verbosity": "low"}},
-        },
-        AgentRole.COACH: {
-            "reasoning": {"effort": "high"},
-            "model_kwargs": {"text": {"verbosity": "medium"}},
         },
         AgentRole.COACH_TRIAGE: {
             "reasoning": {"effort": "high"},
             "model_kwargs": {"text": {"verbosity": "medium"}},
         },
     }
-
-    @staticmethod
-    def _detect_provider(base_url: str) -> str:
-        if "anthropic" in base_url:
-            return "anthropic"
-        return "openai"
 
     CONFIGURATIONS: dict[str, ModelConfiguration] = {
         # OpenAI Models
@@ -141,6 +103,14 @@ class ModelSelector:
             name="gpt-5.5",
             base_url="https://api.openai.com/v1",
         ),
+        "gpt-5.6-sol": ModelConfiguration(
+            name="gpt-5.6-sol",
+            base_url="https://api.openai.com/v1",
+        ),
+        "gpt-5.6-sol-search": ModelConfiguration(
+            name="gpt-5.6-sol",
+            base_url="https://api.openai.com/v1",
+        ),
         "gpt-5.5": ModelConfiguration(
             name="gpt-5.5",
             base_url="https://api.openai.com/v1",
@@ -173,72 +143,27 @@ class ModelSelector:
             name="gpt-5.2-pro",
             base_url="https://api.openai.com/v1",
         ),
-        # Anthropic Models
-        "claude-4": ModelConfiguration(
-            name="claude-sonnet-4-6",
-            base_url="https://api.anthropic.com",
-        ),
-        "claude-4-thinking": ModelConfiguration(
-            name="claude-sonnet-4-6",
-            base_url="https://api.anthropic.com",
-        ),
-        "claude-opus": ModelConfiguration(
-            name="claude-opus-4-8",
-            base_url="https://api.anthropic.com",
-        ),
-        "claude-opus-thinking": ModelConfiguration(
-            name="claude-opus-4-8",
-            base_url="https://api.anthropic.com",
-        ),
-        "claude-opus-4.7-max": ModelConfiguration(
-            name="claude-opus-4-8",
-            base_url="https://api.anthropic.com",
-        ),
-        "claude-opus-4.8-max": ModelConfiguration(
-            name="claude-opus-4-8",
-            base_url="https://api.anthropic.com",
-        ),
-        "claude-haiku": ModelConfiguration(
-            name="claude-haiku-4-5",
-            base_url="https://api.anthropic.com",
-        ),
     }
 
     MODEL_CONFIGS: dict[str, dict[str, Any]] = {
-        "claude-opus-thinking": {
-            "max_tokens": 32000,
-            "thinking": {"type": "enabled", "budget_tokens": 16000},
-            "log": "Using extended thinking mode for {role} (max_tokens: 32000, budget_tokens: 16000)",
-        },
-        "claude-4-thinking": {
-            "max_tokens": 64000,
-            "thinking": {"type": "enabled", "budget_tokens": 16000},
-            "log": "Using extended thinking mode for {role} (max_tokens: 64000, budget_tokens: 16000)",
-        },
-        "claude-4": {
-            "max_tokens": 64000,
-            "log": "Using extended output tokens for {role} (max_tokens: 64000)",
-        },
-        "claude-opus": {
-            "max_tokens": 32000,
-            "log": "Using extended output tokens for {role} (max_tokens: 32000)",
-        },
-        "claude-opus-4.7-max": {
-            "max_tokens": 32000,
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": "max"},
-            "log": "Using Claude Opus 4.8 with adaptive max-effort thinking for {role} (max_tokens: 32000)",
-        },
-        "claude-opus-4.8-max": {
-            "max_tokens": 32000,
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": "max"},
-            "log": "Using Claude Opus 4.8 with adaptive max-effort thinking for {role} (max_tokens: 32000)",
-        },
         "gpt-5": {
             "use_responses_api": True,
             "model_kwargs": {"max_output_tokens": 100000},
             "log": "Using GPT-5.5 with Responses API for {role}",
+        },
+        "gpt-5.6-sol": {
+            "use_responses_api": True,
+            "model_kwargs": {"max_output_tokens": 128000},
+            "log": "Using GPT-5.6 Sol with Responses API for {role}",
+        },
+        "gpt-5.6-sol-search": {
+            "use_responses_api": True,
+            "model_kwargs": {
+                "max_output_tokens": 128000,
+                "tools": [{"type": "web_search"}],
+            },
+            "include": ["web_search_call.action.sources"],
+            "log": "Using GPT-5.6 Sol with web search + Responses API for {role}",
         },
         "gpt-5.5": {
             "use_responses_api": True,
@@ -304,8 +229,7 @@ class ModelSelector:
 
     @classmethod
     def _filter_params_for_provider(cls, provider: str, llm_params: dict[str, Any]) -> dict[str, Any]:
-        allowed = cls.PROVIDER_PARAM_ALLOWLIST.get(provider, set())
-        filtered = {key: value for key, value in llm_params.items() if key in allowed}
+        filtered = {key: value for key, value in llm_params.items() if key in cls.PROVIDER_PARAM_ALLOWLIST}
         if provider == "openai" and "model_kwargs" in filtered:
             model_kwargs = filtered["model_kwargs"].copy()
             if "text" in model_kwargs:
@@ -320,17 +244,19 @@ class ModelSelector:
                 filtered["model_kwargs"] = model_kwargs
             else:
                 filtered.pop("model_kwargs")
-        if provider == "anthropic" and "model_kwargs" in filtered:
-            model_kwargs = filtered["model_kwargs"].copy()
-            model_kwargs.pop("text", None)
-            if model_kwargs:
-                filtered["model_kwargs"] = model_kwargs
-            else:
-                filtered.pop("model_kwargs")
         return filtered
 
     @classmethod
-    def _apply_model_config(cls, model_name: str, role: AgentRole, provider: str, llm_params: dict[str, Any]):
+    def _apply_model_config(
+        cls,
+        model_name: str,
+        role: AgentRole,
+        provider: str,
+        llm_params: dict[str, Any],
+        *,
+        reasoning_effort: ReasoningEffort | None = None,
+        enable_native_web_search: bool | None = None,
+    ) -> None:
         if model_name not in cls.MODEL_CONFIGS:
             config_data: dict[str, Any] = {}
         else:
@@ -338,16 +264,19 @@ class ModelSelector:
 
         role_overrides = cls.ROLE_DEFAULTS.get(role, {})
         merged = cls._deep_merge(config_data, role_overrides)
-        if provider == "openai" or model_name in cls.XHIGH_REASONING_MODEL_ALIASES:
+        if model_name in cls.XHIGH_REASONING_MODEL_ALIASES:
             merged["reasoning"] = {"effort": "xhigh"}
+
+        cls._apply_openai_runtime_overrides(
+            merged,
+            reasoning_effort=reasoning_effort,
+            enable_native_web_search=enable_native_web_search,
+        )
 
         output_token_limit = merged.pop("output_token_limit", None)
         if output_token_limit is not None:
-            if provider == "anthropic":
-                merged["max_tokens"] = output_token_limit
-            elif provider == "openai":
-                model_kwargs = merged.setdefault("model_kwargs", {})
-                model_kwargs["max_output_tokens"] = output_token_limit
+            model_kwargs = merged.setdefault("model_kwargs", {})
+            model_kwargs["max_output_tokens"] = output_token_limit
 
         if role in cls.THINKING_DISABLED_ROLES:
             removed_thinking = "thinking" in merged or "output_config" in merged or "effort" in merged
@@ -355,17 +284,51 @@ class ModelSelector:
             merged.pop("output_config", None)
             merged.pop("effort", None)
             if removed_thinking:
-                merged["log"] = (
-                    "Using {model_name} without Anthropic thinking for {role} to allow forced formatter tool calls"
-                )
+                merged["log"] = "Using {model_name} without extended reasoning for {role}"
 
         log_msg = merged.pop("log", None)
         llm_params.update(merged)
         if log_msg:
             logger.info(str(log_msg).format(role=role.value, model_name=model_name))
 
+    @staticmethod
+    def _apply_openai_runtime_overrides(
+        merged: dict[str, Any],
+        *,
+        reasoning_effort: ReasoningEffort | None,
+        enable_native_web_search: bool | None,
+    ) -> None:
+        if reasoning_effort is not None:
+            merged["reasoning"] = {"effort": reasoning_effort}
+        if enable_native_web_search is None:
+            return
+
+        model_kwargs = merged.setdefault("model_kwargs", {})
+        existing_tools = model_kwargs.get("tools", [])
+        non_search_tools = [
+            tool for tool in existing_tools if not (isinstance(tool, dict) and tool.get("type") == "web_search")
+        ]
+        if enable_native_web_search:
+            model_kwargs["tools"] = [*non_search_tools, {"type": "web_search"}]
+            merged["include"] = ["web_search_call.action.sources"]
+            return
+
+        if non_search_tools:
+            model_kwargs["tools"] = non_search_tools
+        else:
+            model_kwargs.pop("tools", None)
+        merged.pop("include", None)
+
     @classmethod
-    def get_llm(cls, role: AgentRole):
+    def get_llm(
+        cls,
+        role: AgentRole,
+        *,
+        reasoning_effort: ReasoningEffort | None = None,
+        enable_native_web_search: bool | None = None,
+    ):
+        if role is AgentRole.COACH_TRIAGE and enable_native_web_search is None:
+            enable_native_web_search = False
         model_name = ai_settings.get_model_for_role(role)
         selected_config = cls.CONFIGURATIONS.get(model_name)
         if not selected_config:
@@ -378,26 +341,24 @@ class ModelSelector:
 
         base_url = selected_config.base_url
         final_model_name = selected_config.name
-        provider = cls._detect_provider(base_url)
-
-        key_map = {
-            "anthropic": config.anthropic_api_key,
-            "openai": config.openai_api_key,
-        }
-
-        api_key = key_map.get(provider)
+        provider = "openai"
+        api_key = config.openai_api_key
         if not api_key:
-            raise RuntimeError(f"{provider.title()} API key is required")
+            raise RuntimeError("OpenAI API key is required")
 
         logger.info("Configuring LLM for role %s with model %s", role.value, final_model_name)
 
         llm_params: dict[str, Any] = {"model": final_model_name, "api_key": api_key}
 
-        cls._apply_model_config(model_name, role, provider, llm_params)
+        cls._apply_model_config(
+            model_name,
+            role,
+            provider,
+            llm_params,
+            reasoning_effort=reasoning_effort,
+            enable_native_web_search=enable_native_web_search,
+        )
 
         llm_params = cls._filter_params_for_provider(provider, llm_params)
-        if provider == "anthropic":
-            return ChatAnthropic(**llm_params)
-
         llm_params["base_url"] = base_url
         return ChatOpenAI(**llm_params, max_retries=3)

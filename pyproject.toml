@@ -16,7 +16,7 @@ markers = [
 [project]
 name = "paced-coach"
 version = "2.2.0"
-description = "AI-powered endurance coaching engine and SaaS foundation"
+description = "Local-first AI endurance coaching application"
 requires-python = ">=3.13"
 authors = [
     {name = "Developer"}
@@ -24,7 +24,7 @@ authors = [
 # Dependencies now managed by Pixi in pixi.toml
 
 [tool.setuptools]
-packages = ["core", "services", "cli"]
+packages = ["core", "services"]
 
 
 [tool.black]

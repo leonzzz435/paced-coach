@@ -1,58 +1,59 @@
 ---
 name: langgraph-workflows
-description: Patterns for implementing LangGraph agents, state management, checkpoints, and control flow. Use when working in services/ai.
+description: Current patterns for Head Coach agents, durable LangGraph lifecycles, checkpoints, interrupts, and domain ownership in services/ai.
 ---
 
-# LangGraph Workflow Patterns
+# Head Coach and LangGraph Patterns
 
-## 1. State Schema & Reducers
-- **Typed state**: Use `TypedDict` or Pydantic `BaseModel` for graph state. :contentReference[oaicite:2]{index=2}
-- **Reducers are required for merge semantics**:
-  - Default behavior is overwrite on update.
-  - For `messages`, prefer `add_messages` so updates append *and* can overwrite existing messages by ID. :contentReference[oaicite:3]{index=3}
-- **Pattern (messages state)**:
-  - `messages: Annotated[list[AnyMessage], add_messages]`
+## Choose the runtime intentionally
 
-## 2. Graph Construction
-- **Builder**: Use `StateGraph(State)` and explicit `START`/`END` edges for the “spine”.
-- **Compile**: `app = builder.compile(checkpointer=...)`
-- **Separate I/O schemas (when needed)**: Define input/output schemas explicitly instead of forcing everything into one mega-state. :contentReference[oaicite:4]{index=4}
+- Use `langchain.agents.create_agent` for bounded model/tool loops, middleware, dynamic tools, and structured output.
+- Use `StateGraph` around an agent when the product lifecycle needs durable stages, interrupts, resume, deterministic review, or atomic commit boundaries.
+- Do not recreate an agent loop with manual `AIMessage`/`ToolMessage` routing or use the deprecated prebuilt `create_react_agent` helper.
+- Do not introduce a multi-agent framework until a grounded eval shows that a focused specialist materially improves the Head Coach's result.
 
-## 3. Nodes
-- **Async**: Prefer `async def` nodes for uniformity (I/O, LLM calls, tools).
-- **Recommended signature**:
-  - `async def node(state: AgentState, config: RunnableConfig) -> dict | Command[...]`
-- **State updates**:
-  - Return `{"some_key": new_value}` for simple updates.
-  - Use `Command(update=..., goto=...)` when the node also chooses the next hop. :contentReference[oaicite:5]{index=5}
-- **Typing**:
-  - Use `Command[Literal["node_a", "node_b", END]]` to declare allowed destinations. :contentReference[oaicite:6]{index=6}
+## Shared Head Coach factory
 
-## 4. Control Flow (pick the right mechanism)
-- **Static edges**: Use `add_edge("a", "b")` for fixed sequencing.
-- **Conditional edges**: Use `add_conditional_edges("router", router_fn, ...)` for branching based on state.
-- **Command routing**: Prefer `Command(goto=...)` when routing is best decided *inside* a node (common for agent handoffs). :contentReference[oaicite:7]{index=7}
-- **Fan-out / Map-Reduce**:
-  - Use the **Send API** (return `Send(...)` objects from conditional routing) when the number of downstream tasks is dynamic. :contentReference[oaicite:8]{index=8}
-- **Loops**:
-  - Use a loop edge or `Command(goto=...)` + enforce a recursion limit in config when appropriate. :contentReference[oaicite:9]{index=9}
+- Instantiate models only through `services.ai.model_config.ModelSelector`.
+- Select behavior through an explicit semantic run profile from `services/ai/head_coach/run_profiles.py`.
+- Build ongoing agents through `services/ai/head_coach/agent.py` so identity, middleware, call limits, reasoning effort, and `ToolStrategy` repair remain consistent.
+- Use strict Pydantic response schemas. Return validation errors to the responsible model for bounded repair; after exhaustion, fail visibly.
+- Never synthesize rule-authored coaching content as a fallback.
 
-## 5. Tool Execution
-- **ToolNode**: Use the prebuilt tool execution node for model tool-calls inside graphs. :contentReference[oaicite:10]{index=10}
-- **ReAct**: For quick starts, `create_react_agent(...)` is fine; for custom flows, wire model/tool nodes yourself.
+## Context and tools
 
-## 6. Interrupts (Human-in-the-loop)
-- **Pause**: Call `interrupt(value)` inside a node to stop execution and persist state (requires a checkpointer).
-- **Resume**: Re-invoke with `Command(resume=...)`; the resume value is returned back into the paused node. :contentReference[oaicite:11]{index=11}
+- Pass the complete relevant local context. Do not truncate or pre-score it to save tokens.
+- Expose tools by semantic capability. Provider tools exist only when a connected provider is observable at run start.
+- Tools are read-only unless a profile and deterministic service boundary explicitly grant proposal authority.
+- Specialists and research tools advise; the Head Coach owns the final judgment.
 
-## 7. Checkpointing & Threading
-- **Dev**: `InMemorySaver` for debugging/testing. :contentReference[oaicite:12]{index=12}
-- **Prod**: `PostgresSaver` / `AsyncPostgresSaver` (package: `langgraph-checkpoint-postgres`). :contentReference[oaicite:13]{index=13}
-- **Configurable keys**:
-  - Always pass `thread_id` when using a checkpointer. :contentReference[oaicite:14]{index=14}
-  - Use `checkpoint_ns` for namespacing (multi-tenant / multi-workflow).
-  - Optional: `checkpoint_id` to load a specific checkpoint (time travel / replay).
+## Durable graph state
 
-## 8. Subgraphs
-- **Composition**: Use subgraphs for reusable modules.
-- **Memory**: Parent checkpointer typically propagates; compile subgraphs with their own checkpointer only if they need separate internal memory. :contentReference[oaicite:15]{index=15}
+- Keep graph state typed and serializable. Use Pydantic or `TypedDict`; use reducers only where merge semantics are required.
+- Use explicit `START`/`END` edges for deterministic lifecycle stages.
+- Use `Command(update=..., goto=...)` when a node owns both its state update and route.
+- Use `interrupt(value)` for material clarification, then resume the same thread with `Command(resume=...)`.
+- Compile production graphs with the process-safe PostgreSQL checkpointer provider. In-memory savers are test-only.
+- Always pass a stable owner-scoped `thread_id`. Keep root `checkpoint_ns` empty/reserved for LangGraph internals.
+
+## Ownership and side effects
+
+- LangGraph checkpoints own execution progress, not canonical product state.
+- PostgreSQL domain rows and Coach Events own accepted plans, decisions, and user-visible history.
+- Keep side effects in idempotent service/commit nodes. A retry or resume must not duplicate events, quota consumption, costs, or plan writes.
+- Acquire the per-run execution claim before advancing a durable graph. Cancellation and terminal domain state win over stale delivery.
+- The model may propose changes; deterministic services validate schema/version and commit only after the correct product approval boundary.
+
+## Observability
+
+- Emit semantic product lifecycle events, not internal graph node names.
+- Trace sanitized metadata, tool names, artifact IDs, validation outcomes, and cost/token totals.
+- Never trace credentials, provider tokens, database sessions, raw private context, or hidden reasoning.
+
+## Verification
+
+- Test successful structured output and model self-repair exhaustion.
+- Test provider-free tool exposure and optional-provider capability gating.
+- Test checkpoint resume, duplicate delivery, cancellation, concurrency claims, and atomic commit recovery.
+- Test that no direct mutation occurs before proposal acceptance.
+- Run Ruff, Mypy, mocked provider tests, and the affected frontend schema/rendering tests.

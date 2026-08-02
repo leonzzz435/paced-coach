@@ -9,10 +9,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.local_usage import LocalUsageCounter, LocalUsageEvent
+from api.services import local_usage_features
 from api.services.local_usage.schemas import UsageWindow
 
-FEATURE_PLAN_GENERATION = "plan_generation"
-FEATURE_FULL_RUN = FEATURE_PLAN_GENERATION
+FEATURE_FULL_RUN = local_usage_features.FEATURE_FULL_RUN
+FEATURE_PLAN_GENERATION = local_usage_features.FEATURE_PLAN_GENERATION
 FEATURE_ADAPTIVE_UPDATE = "adaptive_update"
 FEATURE_DAILY_SYNC = "daily_sync"
 FEATURE_COACH_TURN = "coach_turn"

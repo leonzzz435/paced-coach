@@ -71,6 +71,7 @@ async def test_delete_account_removes_coach_event_dependents_before_events():
 
     await _delete_local_account_records(db=fake_db, user_id=uuid.uuid4())  # type: ignore[arg-type]
 
+    checkpoint_writes_index = _statement_index(fake_db.statements, "DELETE FROM checkpoint_writes")
     coach_turn_runs_index = _statement_index(fake_db.statements, "DELETE FROM coach_turn_runs")
     ai_run_costs_index = _statement_index(fake_db.statements, "DELETE FROM ai_run_costs")
     daily_update_runs_index = _statement_index(fake_db.statements, "DELETE FROM daily_update_runs")
@@ -78,6 +79,7 @@ async def test_delete_account_removes_coach_event_dependents_before_events():
     coach_events_index = _statement_index(fake_db.statements, "DELETE FROM coach_events")
     coach_threads_index = _statement_index(fake_db.statements, "DELETE FROM coach_threads")
 
+    assert checkpoint_writes_index < coach_turn_runs_index
     assert ai_run_costs_index < coach_events_index
     assert coach_turn_runs_index < coach_events_index
     assert daily_update_runs_index < coach_events_index
@@ -108,7 +110,7 @@ async def test_local_reset_skips_remote_auth_cleanup_and_preserves_owner_user(mo
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_delete_account_revokes_provider_tokens_after_local_delete_commits(monkeypatch):
+async def test_delete_account_performs_local_reset_without_remote_provider_calls(monkeypatch):
     from api.services import account_deletion
 
     user_id = uuid.uuid4()
@@ -118,27 +120,17 @@ async def test_delete_account_revokes_provider_tokens_after_local_delete_commits
     async def fake_load_user_for_deletion(*_args, **_kwargs):
         return SimpleNamespace(id=user_id)
 
-    async def fake_collect_revocations(*_args, **_kwargs):
-        call_order.append("collect_revocations")
-        return [account_deletion._ProviderRevocation(provider="whoop", access_token="access-token")]
-
-    async def fake_revoke_provider_access(*_args, **_kwargs):
-        assert fake_db.committed is True
-        call_order.append("revoke")
-
     async def fake_delete_local(*_args, **kwargs):
         assert kwargs["delete_user"] is False
         call_order.append("delete_local")
 
     monkeypatch.setattr(account_deletion, "_load_user_for_deletion", fake_load_user_for_deletion)
-    monkeypatch.setattr(account_deletion, "_collect_provider_revocations", fake_collect_revocations)
-    monkeypatch.setattr(account_deletion, "_revoke_provider_access", fake_revoke_provider_access)
     monkeypatch.setattr(account_deletion, "_delete_local_account_records", fake_delete_local)
 
     response = await account_deletion.delete_account_and_data(db=fake_db, user_id=user_id)  # type: ignore[arg-type]
 
     assert response == {"status": "reset", "redirect_path": "/delete?status=reset"}
-    assert call_order == ["collect_revocations", "delete_local", "revoke"]
+    assert call_order == ["delete_local"]
 
 
 @pytest.mark.unit

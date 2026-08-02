@@ -36,6 +36,14 @@ celery_config: dict[str, object] = {
             "task": "worker.tasks.run_coach_idempotency_cleanup_task",
             "schedule": crontab(minute=45, hour=3),
         },
+        "run-head-coach-checkpoint-cleanup": {
+            "task": "worker.tasks.run_head_coach_checkpoint_cleanup_task",
+            "schedule": crontab(minute=15, hour=4),
+        },
+        "recover-pending-analysis-dispatches": {
+            "task": "worker.tasks.recover_pending_analysis_dispatches_task",
+            "schedule": crontab(minute="*"),
+        },
     },
 }
 

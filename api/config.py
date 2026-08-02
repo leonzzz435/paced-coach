@@ -67,21 +67,31 @@ class Settings(BaseSettings):
     # Coach chat
     coach_thread_iteration_limit: int = Field(default=15, validation_alias="COACH_THREAD_ITERATION_LIMIT")
 
-    # Whoop OAuth 2.0 (live)
-    whoop_oauth_enabled: bool = False
-    whoop_oauth_client_id: str = ""
-    whoop_oauth_client_secret: str = ""
-    # This should point to the web callback route (e.g. https://app.example.com/app/api/oauth/whoop/callback),
-    # not the API callback URL, since the browser redirect will not include an Authorization header.
-    whoop_oauth_redirect_uri: str = ""
-
-    # Strava OAuth 2.0 (live)
-    strava_oauth_enabled: bool = False
-    strava_oauth_client_id: str = ""
-    strava_oauth_client_secret: str = ""
-    # This should point to the web callback route (e.g. https://app.example.com/app/api/oauth/strava/callback),
-    # not the API callback URL, since the browser redirect will not include an Authorization header.
-    strava_oauth_redirect_uri: str = ""
+    # Durable Head Coach execution state
+    head_coach_checkpoint_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        validation_alias="HEAD_COACH_CHECKPOINT_RETENTION_DAYS",
+    )
+    head_coach_checkpoint_pool_min_size: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        validation_alias="HEAD_COACH_CHECKPOINT_POOL_MIN_SIZE",
+    )
+    head_coach_checkpoint_pool_max_size: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        validation_alias="HEAD_COACH_CHECKPOINT_POOL_MAX_SIZE",
+    )
+    head_coach_checkpoint_pool_timeout_seconds: float = Field(
+        default=10.0,
+        gt=0.0,
+        le=120.0,
+        validation_alias="HEAD_COACH_CHECKPOINT_POOL_TIMEOUT_SECONDS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_prefix="")
 

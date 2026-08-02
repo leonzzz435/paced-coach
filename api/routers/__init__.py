@@ -7,11 +7,7 @@ from api.routers import (
     competitions,
     dashboard,
     health,
-    integrations,
     plans,
-    strava_oauth,
-    weekly_recap,
-    whoop_oauth,
 )
 
 __all__ = [
@@ -21,9 +17,5 @@ __all__ = [
     "competitions",
     "dashboard",
     "health",
-    "integrations",
     "plans",
-    "strava_oauth",
-    "weekly_recap",
-    "whoop_oauth",
 ]

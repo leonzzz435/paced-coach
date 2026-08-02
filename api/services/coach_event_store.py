@@ -12,10 +12,6 @@ from api.models.coach_proposal import CoachProposal
 from api.models.coach_thread import CoachThread
 from api.models.weekly_recap_run import WeeklyRecapRun
 from api.services.coach_quota import get_coach_weekly_quota
-from api.services.connected_coaching import resolve_connected_coaching_gate
-from api.services.full_run_policy import evaluate_weekly_recap_availability
-from api.services.integration_status import IntegrationsStatus, load_integrations_status
-from api.services.local_usage import get_local_usage_context, has_weekly_recap_feature_access
 from core.recap_schedule import compute_recap_week_anchor_utc
 
 EVENT_USER_MESSAGE = "user_message"
@@ -30,24 +26,6 @@ EVENT_FULL_RUN_REQUESTED = "full_run_requested"
 EVENT_TOOL_TRACE = "tool_trace"
 THREAD_STATUS_ACTIVE = "active"
 THREAD_STATUS_ARCHIVED = "archived"
-
-
-def resolve_recap_gate_state(
-    *,
-    recap_feature_enabled: bool,
-    recap_window_open: bool,
-    integrations_status: IntegrationsStatus,
-) -> tuple[bool, str | None, str | None]:
-    gate = resolve_connected_coaching_gate(
-        feature_enabled=recap_feature_enabled,
-        integrations_status=integrations_status,
-        locked_message="Weekly recap is not available on this plan.",
-    )
-    if recap_window_open:
-        return gate.allowed, gate.attention_message, gate.gate_target
-    if gate.attention_message:
-        return False, gate.attention_message, gate.gate_target or "settings"
-    return False, None, None
 
 
 def resolve_coach_chat_gate_state(*, quota: dict[str, object]) -> tuple[bool, str | None, str | None]:
@@ -445,21 +423,11 @@ async def build_thread_projection(
     )
     pending_ids = [str(item) for item in pending_proposals_row.scalars().all()]
 
-    recap_availability = await evaluate_weekly_recap_availability(db, user_id=user_id)
-    usage_context = await get_local_usage_context(db, user_id=user_id)
-    recap_feature_enabled = has_weekly_recap_feature_access(usage_context)
-    integrations_status = await load_integrations_status(db, user_id=user_id)
     anchor = compute_recap_week_anchor_utc()
     quota = await get_coach_weekly_quota(db, user_id=user_id, week_anchor_utc=anchor)
     can_send_message, coach_gate_message, coach_gate_target = resolve_coach_chat_gate_state(
         quota=quota,
     )
-    can_trigger_recap, training_provider_message, recap_gate_target = resolve_recap_gate_state(
-        recap_feature_enabled=recap_feature_enabled,
-        recap_window_open=recap_availability.allowed,
-        integrations_status=integrations_status,
-    )
-
     return {
         "thread": {
             "id": str(thread_snapshot.id),
@@ -475,8 +443,5 @@ async def build_thread_projection(
         "coach_gate_target": coach_gate_target,
         "has_pending_proposal": len(pending_ids) > 0,
         "pending_proposal_ids": pending_ids,
-        "can_trigger_recap": can_trigger_recap,
-        "training_provider_message": training_provider_message,
-        "recap_gate_target": recap_gate_target,
         "next_after_seq": events[-1].seq if events else after_seq,
     }

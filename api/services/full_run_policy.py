@@ -18,18 +18,10 @@ from api.services.athlete_time import (
     recap_first_anchor_utc,
     recap_window_utc,
 )
-from api.services.local_usage.usage import FEATURE_FULL_RUN
+from api.services.local_usage_features import FEATURE_FULL_RUN
 
-FULL_RUN_MIN_INTERVAL = timedelta(weeks=4)
 WEEKLY_RECAP_INTERVAL = timedelta(days=7)
 _RECAP_ACTIVE_STATUSES = ("pending", "completed")
-
-
-@dataclass(frozen=True)
-class FullRunAvailability:
-    allowed: bool
-    last_run_at: datetime | None
-    next_allowed_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -68,26 +60,6 @@ async def get_latest_full_run_created_at(db: AsyncSession, *, user_id: uuid.UUID
     if isinstance(consumed_at, datetime):
         return as_utc(consumed_at)
     return None
-
-
-async def evaluate_full_run_availability(
-    db: AsyncSession,
-    *,
-    user_id: uuid.UUID,
-    now: datetime | None = None,
-    min_interval: timedelta | None = None,
-) -> FullRunAvailability:
-    now_utc = as_utc(now or datetime.now(UTC))
-    interval = min_interval or FULL_RUN_MIN_INTERVAL
-    last_run_at = await get_latest_full_run_created_at(db, user_id=user_id)
-    if last_run_at is None:
-        return FullRunAvailability(allowed=True, last_run_at=None, next_allowed_at=None)
-    next_allowed_at = last_run_at + interval
-    return FullRunAvailability(
-        allowed=now_utc >= next_allowed_at,
-        last_run_at=last_run_at,
-        next_allowed_at=next_allowed_at,
-    )
 
 
 async def evaluate_weekly_recap_availability(

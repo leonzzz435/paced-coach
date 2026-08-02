@@ -47,7 +47,7 @@ git diff --check
 
 ## Product Boundaries
 
-- Manual Mode must work without Strava/WHOOP.
+- Provider-free planning and coach chat must work from athlete-declared context alone.
 - Connected Mode is optional.
 - No-provider outputs must not invent activity, load, sleep, HRV, recovery, or readiness claims.
 - The public setup path must not require hosted auth, hosted payments, vendor deployment accounts, or production infrastructure accounts.

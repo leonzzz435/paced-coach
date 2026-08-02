@@ -78,7 +78,8 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
           <li>Athlete profile, competitions, and local owner-scoped app content</li>
           <li>Active plans, analyses, jobs, daily update runs, weekly recap runs, and coaching outputs</li>
           <li>Coach threads, messages, events, proposals, and local safety usage rows</li>
-          <li>Stored Strava and WHOOP credentials, pending OAuth sessions, and connector history</li>
+          <li>Owner-scoped Head Coach checkpoint payloads used for pause and resume</li>
+          <li>Legacy encrypted credentials, pending OAuth sessions, and connector history from older development builds</li>
           <li>Local usage rows that still exist in the database</li>
         </ul>
         <p>The local technical owner row is preserved in local mode to avoid breaking `LOCAL_OWNER_USER_ID`.</p>
@@ -86,11 +87,7 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
         <h2 className="text-lg font-medium text-zinc-900">4. What May Remain</h2>
-        <p>Database backups, local filesystem exports, logs, screenshots, and external provider records are separate.</p>
-        <p>
-          Disconnecting Strava or WHOOP removes local tokens and attempts provider-side revocation, but provider-held
-          records remain governed by each provider&apos;s own controls and policies.
-        </p>
+        <p>Database backups, local filesystem exports, logs, and screenshots are separate and remain under the local operator&apos;s control.</p>
       </section>
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
@@ -104,7 +101,7 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
         </p>
       </section>
 
-      <p className="text-xs text-zinc-500">Last updated: May 31, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — last updated: August 1, 2026</p>
     </PublicPageShell>
   );
 }

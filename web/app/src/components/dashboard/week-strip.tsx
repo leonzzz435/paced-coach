@@ -133,12 +133,13 @@ export default function WeekStrip({ weeklyPlan }: Props) {
                                         type="button"
                                         onClick={(e) => toggleCompletion(e, day)}
                                         className={`
-                                            flex items-center justify-center w-6 h-6 rounded-md border-[1.5px] shrink-0 transition-all
+                                            flex h-11 w-11 items-center justify-center rounded-md border-[1.5px] shrink-0 transition-all
                                             ${done
                                                 ? "bg-[var(--accent-success)] border-[var(--accent-success)] text-white hover:brightness-110"
                                                 : "bg-[var(--surface)] border-[var(--border-accent)] text-transparent hover:border-[var(--accent-success)] hover:text-[var(--accent-success)] hover:bg-[var(--accent-success)]/10"
                                             }
                                         `}
+                                        aria-label={done ? "Mark as not done" : "Mark as done"}
                                         title={done ? "Mark as not done" : "Mark as done"}
                                     >
                                         <Check className={`w-3.5 h-3.5 stroke-[3] ${done ? "visible" : "invisible group-hover:visible"}`} />

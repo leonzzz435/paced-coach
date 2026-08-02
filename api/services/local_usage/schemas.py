@@ -7,8 +7,6 @@ from pydantic import BaseModel
 class PlanGenerationStatus(BaseModel):
     allowed: bool
     last_generated_at: datetime | None = None
-    next_allowed_at: datetime | None = None
-    cooldown_days: int
 
 
 class UsageWindow(BaseModel):

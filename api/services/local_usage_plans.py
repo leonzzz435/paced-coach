@@ -11,7 +11,6 @@ LEGACY_FREE_PLAN_KEY = "free"
 class LocalUsagePlan:
     plan_key: str
     plan_name: str
-    plan_generation_cooldown_days: int
     daily_sync_limit: int
     coach_turn_daily_limit: int
     weekly_recap_included: bool
@@ -23,7 +22,6 @@ class LocalUsagePlan:
 LOCAL_DEFAULT_USAGE_PLAN = LocalUsagePlan(
     plan_key=LOCAL_DEFAULT_USAGE_PLAN_KEY,
     plan_name="Local default",
-    plan_generation_cooldown_days=28,
     daily_sync_limit=1,
     coach_turn_daily_limit=3,
     weekly_recap_included=True,
@@ -35,7 +33,6 @@ LOCAL_DEFAULT_USAGE_PLAN = LocalUsagePlan(
 LOCAL_EXTENDED_USAGE_PLAN = LocalUsagePlan(
     plan_key=LOCAL_EXTENDED_USAGE_PLAN_KEY,
     plan_name="Local extended",
-    plan_generation_cooldown_days=7,
     daily_sync_limit=1,
     coach_turn_daily_limit=20,
     weekly_recap_included=True,

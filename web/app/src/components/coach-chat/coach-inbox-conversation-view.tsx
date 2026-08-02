@@ -255,7 +255,7 @@ export default function CoachInboxConversationView({
         />
       ) : null}
 
-      {(busyAction === "send" || busyAction === "recap") && statusDisplay ? (
+      {busyAction === "send" && statusDisplay ? (
         <div className="max-w-[94%] transition-opacity duration-300">
           <CoachMessageMeta createdAt={new Date().toISOString()} />
           <div className="mt-1 rounded-[1.45rem] rounded-tl-md border border-sky-400/25 bg-[linear-gradient(180deg,rgba(56,189,248,0.12),rgba(15,23,42,0.92))] px-4 py-3 text-sm text-sky-100 shadow-[0_12px_28px_rgba(14,165,233,0.10)]">

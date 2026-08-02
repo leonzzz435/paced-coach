@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import PlanViewer from "@/components/plan-viewer/plan-viewer";
+import type { SeasonPlanV3, WeeklyPlanV3 } from "@/components/plan-viewer/types";
+import CoachClarificationCard from "@/components/jobs/coach-clarification-card";
 import type { UiAnalysis, UiSeasonPlan, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 
 type JobStatus = {
@@ -16,6 +18,11 @@ type JobStatus = {
   completed_at?: string | null;
   cost_usd?: number | null;
   tokens_used?: number | null;
+  interrupt?: {
+    question: string;
+    reason_markdown: string;
+    requested_field: string;
+  } | null;
 };
 
 type ProgressStep = {
@@ -46,48 +53,42 @@ type JobResults = {
   status: string;
   result?: {
     analysis_blocks?: UiAnalysis | null;
-    weekly_plan_blocks?: UiWeeklyPlan | null;
-    season_plan_blocks?: UiSeasonPlan | null;
+    weekly_plan_blocks?: UiWeeklyPlan | WeeklyPlanV3 | null;
+    season_plan_blocks?: UiSeasonPlan | SeasonPlanV3 | null;
   } | null;
   error_message?: string | null;
 };
 
 const PROGRESS_STAGES: ProgressStage[] = [
   {
-    key: "data",
-    label: "Collect Data",
-    description: "Gathering metrics, physiology, and recent activity context.",
-    nodes: ["metrics_summarizer", "physiology_summarizer", "activity_summarizer"],
+    key: "context",
+    label: "Understand You",
+    description: "Reading your profile, goals, calendar, constraints, and coaching memory.",
+    nodes: ["head_coach_understanding_context"],
   },
   {
-    key: "experts",
-    label: "Expert Analysis",
-    description: "Running specialist analysis across your training signals.",
-    nodes: ["metrics_expert", "physiology_expert", "activity_expert"],
+    key: "strategy",
+    label: "Design Strategy",
+    description: "Building the season direction around what you declared.",
+    nodes: ["head_coach_designing_strategy"],
   },
   {
-    key: "analysis",
-    label: "Synthesize Insights",
-    description: "Combining findings into clear analysis outputs.",
-    nodes: ["synthesis", "plot_resolution", "analysis_formatter"],
+    key: "review",
+    label: "Review Constraints",
+    description: "Checking that the plan is coherent, safe, and realistic.",
+    nodes: ["head_coach_reviewing_constraints", "head_coach_awaiting_input"],
   },
   {
-    key: "planning",
-    label: "Build Plans",
-    description: "Designing your season roadmap and next 28 days.",
-    nodes: ["season_planner", "data_integration", "weekly_planner"],
+    key: "execution",
+    label: "Build 28 Days",
+    description: "Turning the strategy into a complete daily execution block.",
+    nodes: ["head_coach_building_execution_block"],
   },
   {
-    key: "formatting",
-    label: "Format Delivery",
-    description: "Preparing your season roadmap and training block for presentation.",
-    nodes: ["season_formatter", "weekly_formatter"],
-  },
-  {
-    key: "finalize",
-    label: "Finalize",
-    description: "Wrapping up generation metadata and publishing results.",
-    nodes: ["finalize"],
+    key: "save",
+    label: "Save Plan",
+    description: "Publishing the roadmap and execution block to your local app.",
+    nodes: ["head_coach_saving_plan"],
   },
 ];
 
@@ -100,7 +101,6 @@ function stageStatusLabel(stageStatus: StageStatus): string {
 
 function summarizeProgressStages(progressSteps: ProgressStep[], jobStatus: string | null | undefined): ProgressStageView[] {
   const stepsByNode = new Map(progressSteps.map((step) => [step.node, step]));
-
   const stages: ProgressStageView[] = PROGRESS_STAGES.map((stage) => {
     const matchedSteps = stage.nodes
       .map((nodeName) => stepsByNode.get(nodeName))
@@ -212,6 +212,8 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
   const [error, setError] = useState<string | null>(null);
   const [cancelState, setCancelState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [cancelMessage, setCancelMessage] = useState<string | null>(null);
+  const [pollGeneration, setPollGeneration] = useState(0);
+  const resumeRecoveryUntilRef = useRef(0);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -234,6 +236,7 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
         authRetries = 0;
         const s = (await res.json()) as JobStatus;
         if (cancelled) return;
+        setError(null);
         setStatus(s);
 
         if (s.status === "completed" || s.status === "failed") {
@@ -246,6 +249,7 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
             if (!cancelled) timer = setTimeout(poll, 2000);
             return;
           }
+          if (!r.ok) throw new Error(await r.text());
           const data = (await r.json()) as JobResults;
           if (!cancelled) setResults(data);
           return;
@@ -255,9 +259,23 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
           return;
         }
 
+        if (s.status === "awaiting_input") {
+          if (Date.now() < resumeRecoveryUntilRef.current) {
+            timer = setTimeout(poll, 1000);
+          }
+          return;
+        }
+
+        resumeRecoveryUntilRef.current = 0;
+
         timer = setTimeout(poll, 2000);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to fetch status");
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to fetch status");
+          if (Date.now() < resumeRecoveryUntilRef.current) {
+            timer = setTimeout(poll, 2000);
+          }
+        }
       }
     }
 
@@ -266,10 +284,13 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [jobId]);
+  }, [jobId, pollGeneration]);
 
   const canCancel =
-    status?.status === "pending" || status?.status === "running" || status?.status === "cancellation_requested";
+    status?.status === "pending" ||
+    status?.status === "running" ||
+    status?.status === "awaiting_input" ||
+    status?.status === "cancellation_requested";
 
   async function onCancel() {
     setCancelState("sending");
@@ -277,6 +298,17 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
     try {
       const res = await fetch(`/app/api/analysis/${jobId}/cancel`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
+      const cancelledStatus = (await res.json()) as Partial<JobStatus>;
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              ...cancelledStatus,
+              status: cancelledStatus.status ?? "cancellation_requested",
+              interrupt: null,
+            }
+          : current,
+      );
       setCancelState("sent");
       setCancelMessage("Cancellation requested.");
     } catch (e) {
@@ -315,6 +347,21 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
 
       {error ? (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-red-400">{error}</div>
+      ) : null}
+
+      {status?.status === "awaiting_input" && status.interrupt ? (
+        <CoachClarificationCard
+          jobId={jobId}
+          clarification={status.interrupt}
+          onResumed={() => {
+            setStatus((current) => (current ? { ...current, status: "pending", interrupt: null } : current));
+          }}
+          onStatusRecovery={() => {
+            setError(null);
+            resumeRecoveryUntilRef.current = Date.now() + 10_000;
+            setPollGeneration((current) => current + 1);
+          }}
+        />
       ) : null}
 
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-primary)] space-y-1">
@@ -357,7 +404,7 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-sm font-semibold text-[var(--text-primary)]">Job progress</div>
-              <div className="text-xs text-[var(--text-secondary)]">Simplified into 6 stages</div>
+              <div className="text-xs text-[var(--text-secondary)]">{stageViews.length} clear coaching stages</div>
             </div>
             <div className="rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-2.5 py-1 text-xs font-semibold text-[var(--text-primary)] shadow-sm">
               {completedStages}/{stageViews.length} complete
@@ -411,6 +458,12 @@ export default function JobPage({ params }: { params: { jobId: string } }) {
       {status?.status === "cancelled" ? (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-primary)]">
           This plan generation was cancelled.
+        </div>
+      ) : null}
+
+      {status?.status === "completed" && results && !hasBlocks && !results.error_message ? (
+        <div className="rounded-lg border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-100" role="status">
+          Generation completed, but no renderable plan artifact was returned. Your previously saved plan is unchanged.
         </div>
       ) : null}
 

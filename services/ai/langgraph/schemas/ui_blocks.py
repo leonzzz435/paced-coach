@@ -6,9 +6,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field
 
-from core.version_manifest import get_version_manifest
+from services.ai.head_coach.artifacts import ExecutionPlanArtifactV3, SeasonStrategyArtifactV3
 
-CURRENT_UI_SCHEMA_VERSION = get_version_manifest().components.ui_schema.current_schema_version
+LEGACY_UI_SCHEMA_VERSION = 1
 
 
 def _clamp_date(v: object) -> object:
@@ -261,7 +261,7 @@ class UiWeeklyPlan(LlmWeeklyPlan):
 
     type: Literal["weekly_plan"] = "weekly_plan"
     plan_id: str = ""
-    schema_version: int = CURRENT_UI_SCHEMA_VERSION
+    schema_version: int = LEGACY_UI_SCHEMA_VERSION
     version: int = 1
     athlete_name: str = ""
     created_at: str | None = None
@@ -325,7 +325,7 @@ class UiSeasonPlan(LlmSeasonPlan):
 
     type: Literal["season_plan"] = "season_plan"
     plan_id: str = ""
-    schema_version: int = CURRENT_UI_SCHEMA_VERSION
+    schema_version: int = LEGACY_UI_SCHEMA_VERSION
     version: int = 1
     athlete_name: str = ""
     created_at: str | None = None
@@ -426,7 +426,7 @@ class UiAnalysis(LlmAnalysis):
 
     type: Literal["analysis"] = "analysis"
     analysis_id: str = ""
-    schema_version: int = CURRENT_UI_SCHEMA_VERSION
+    schema_version: int = LEGACY_UI_SCHEMA_VERSION
     version: int = 1
     athlete_name: str = ""
     created_at: str | None = None
@@ -437,3 +437,6 @@ UiSeasonPlan.model_rebuild()
 UiAnalysis.model_rebuild()
 UiHtmlBlock.model_rebuild()
 UiDisclosureNode.model_rebuild()
+
+UiSeasonPlanV3 = SeasonStrategyArtifactV3
+UiWeeklyPlanV3 = ExecutionPlanArtifactV3

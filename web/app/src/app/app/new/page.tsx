@@ -4,15 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import type { AthleteProfileResponse, Competition, IntegrationsStatus, ProfilePayload } from "@/lib/types/athlete-context";
+import type { AthleteProfileResponse, Competition, ProfilePayload } from "@/lib/types/athlete-context";
 import {
   formatDateHuman,
-  formatTrainingProviderBadge,
-  getAttentionTrainingProviderNames,
-  getPreviouslyConnectedProviderNames,
-  hasEverConnectedTrainingProvider,
-  hasLinkedTrainingProvider,
-  hasOperationalTrainingProvider,
   profileCompleteness,
 } from "@/lib/types/athlete-context";
 import type { DashboardStateResponse } from "@/lib/types/dashboard";
@@ -48,9 +42,9 @@ export default function NewRunPage() {
 
   const [contextState, setContextState] = useState<ContextState>("loading");
   const [contextError, setContextError] = useState<string | null>(null);
+  const [contextReloadToken, setContextReloadToken] = useState(0);
   const [profile, setProfile] = useState<ProfilePayload | null>(null);
   const [competitions, setCompetitions] = useState<Competition[]>([]);
-  const [integrations, setIntegrations] = useState<IntegrationsStatus | null>(null);
   const [firstRun, setFirstRun] = useState<DashboardStateResponse["first_run"] | null>(null);
 
   useEffect(() => {
@@ -60,27 +54,23 @@ export default function NewRunPage() {
       setContextState("loading");
       setContextError(null);
       try {
-        const [profileRes, competitionRes, credentialsRes, dashboardRes] = await Promise.all([
+        const [profileRes, competitionRes, dashboardRes] = await Promise.all([
           fetch("/app/api/athlete-profile", { cache: "no-store" }),
           fetch("/app/api/competitions", { cache: "no-store" }),
-          fetch("/app/api/integrations/status", { cache: "no-store" }),
           fetch("/app/api/dashboard/state", { cache: "no-store" }),
         ]);
 
         if (!profileRes.ok) throw new Error("Failed to load athlete profile");
         if (!competitionRes.ok) throw new Error("Failed to load competitions");
-        if (!credentialsRes.ok) throw new Error("Failed to load integrations status");
         if (!dashboardRes.ok) throw new Error("Failed to load generation readiness");
 
         const profileData = (await profileRes.json()) as AthleteProfileResponse;
         const competitionData = (await competitionRes.json()) as Competition[];
-        const credentialsData = (await credentialsRes.json()) as IntegrationsStatus;
         const dashboardData = (await dashboardRes.json()) as DashboardStateResponse;
 
         if (cancelled) return;
         setProfile(profileData.profile);
         setCompetitions(competitionData);
-        setIntegrations(credentialsData);
         setFirstRun(dashboardData.first_run);
         setContextState("loaded");
       } catch (error) {
@@ -94,25 +84,11 @@ export default function NewRunPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [contextReloadToken]);
 
   const completeness = useMemo(() => profileCompleteness(profile), [profile]);
   const warnings = useMemo(() => {
     const nextWarnings: string[] = [];
-    const operationalProviderReady = hasOperationalTrainingProvider(integrations);
-    if (!operationalProviderReady) {
-      if (hasLinkedTrainingProvider(integrations)) {
-        const attentionProviders = getAttentionTrainingProviderNames(integrations);
-        const attentionSummary = attentionProviders.length > 0 ? attentionProviders.join(" + ") : "A linked provider";
-        nextWarnings.push(`${attentionSummary} needs attention. Draft Mode still works, but connected coaching will stay partial until those sources recover.`);
-      } else if (hasEverConnectedTrainingProvider(integrations)) {
-        const disconnectedProviders = getPreviouslyConnectedProviderNames(integrations);
-        const providerSummary = disconnectedProviders.length > 0 ? disconnectedProviders.join(" + ") : "Your training source";
-        nextWarnings.push(`${providerSummary} was disconnected. Draft Mode still works, but connected coaching stays partial until a source is reconnected.`);
-      } else {
-        nextWarnings.push("No connected training source yet. Draft Mode still works, but planning will rely on your stored profile and race calendar until you connect Strava or WHOOP.");
-      }
-    }
     if (completeness < 65) {
       nextWarnings.push("Profile context is still sparse, so training constraints may be interpreted too loosely.");
     }
@@ -120,19 +96,19 @@ export default function NewRunPage() {
       nextWarnings.push("No competitions are saved, so periodization will be more generic.");
     }
     if (firstRun && !firstRun.llm_ready) {
-      nextWarnings.push("No supported LLM key is configured. Add OPENAI_API_KEY to .env and restart the API before generating.");
+      nextWarnings.push(firstRun.blockers[0] ?? "Add one supported LLM key to .env and restart the API before generating.");
     }
     return nextWarnings;
-  }, [competitions.length, completeness, firstRun, integrations]);
+  }, [competitions.length, completeness, firstRun]);
 
   const llmReady = firstRun?.llm_ready ?? true;
-  const generationDisabled = state === "starting" || contextState === "loading" || !llmReady;
+  const generationDisabled = state === "starting" || contextState !== "loaded" || !llmReady;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!llmReady) {
       setState("error");
-      setMessage("Add OPENAI_API_KEY to your local .env, restart the API, then retry generation.");
+      setMessage(firstRun?.blockers[0] ?? "Add one supported LLM key to your local .env, restart the API, then retry generation.");
       return;
     }
     setState("starting");
@@ -165,7 +141,8 @@ export default function NewRunPage() {
       router.push(`/app/jobs/${jobId}`);
     } catch (error) {
       setState("error");
-      setMessage(error instanceof Error ? error.message : "Failed to generate plans.");
+      const detail = error instanceof Error ? error.message : "The generation request failed.";
+      setMessage(`Plan generation failed. Your saved profile and race context are unchanged. ${detail}`);
     }
   }
 
@@ -179,17 +156,28 @@ export default function NewRunPage() {
       </div>
 
       {contextState === "error" ? (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-red-400">{contextError}</div>
+        <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-300">
+          <div className="font-semibold">Saved planning context could not be loaded. Nothing was changed.</div>
+          <div className="mt-1 text-red-300/80">{contextError}</div>
+          <button
+            className="mt-3 rounded-lg border border-red-300/25 px-3 py-2 text-xs font-semibold text-red-100 hover:bg-red-300/10"
+            onClick={() => setContextReloadToken((token) => token + 1)}
+            type="button"
+          >
+            Retry loading context
+          </button>
+        </div>
       ) : null}
 
       <form onSubmit={onSubmit} className="space-y-4">
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
           <div className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--text-secondary)]">
-            <div>Connected sources: {formatTrainingProviderBadge(integrations)}</div>
+            <div className="font-semibold text-[var(--text-primary)]">Planning baseline: your saved athlete context</div>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Draft Mode uses your stored profile and race calendar immediately. Connected data improves precision and
-              unlocks richer daily sync and weekly recap context once configured.
+              No wearable is required. Your saved profile, goals, availability, constraints, race calendar, and notes
+              are enough to generate the season roadmap and 28-day block.
             </p>
+            <div className="mt-2 text-xs text-[var(--text-muted)]">External training-data connectors are not part of this release.</div>
           </div>
         </section>
 
@@ -234,20 +222,16 @@ export default function NewRunPage() {
 
         {warnings.length > 0 ? (
           <section className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
-            <div className="text-sm font-semibold text-amber-300">Draft Mode notes</div>
+            <div className="text-sm font-semibold text-amber-300">Planning context notes</div>
             <p className="mt-1 text-xs text-amber-400">
-              You can generate plans now. These gaps mainly reduce precision or limit later connected coaching surfaces.
+              Generation remains available when the LLM key and saved context are ready. These notes affect specificity
+              or plan specificity.
             </p>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-300">
               {warnings.map((warning) => (
                 <li key={warning}>{warning}</li>
               ))}
             </ul>
-            {!hasOperationalTrainingProvider(integrations) ? (
-              <Link className="mt-3 inline-flex text-sm font-semibold text-amber-200 hover:text-white" href="/app/settings">
-                Open connected sources
-              </Link>
-            ) : null}
           </section>
         ) : null}
 

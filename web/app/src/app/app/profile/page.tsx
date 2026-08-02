@@ -299,7 +299,7 @@ export default function AthleteProfilePage() {
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">Account & Data</div>
               <div className="mt-2 text-lg font-semibold tracking-tight text-[var(--text-primary)]">Settings</div>
               <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                Manage Strava, WHOOP, sync status, and account deletion from one place.
+                Review the provider-free runtime and manage the protected local data reset.
               </p>
             </div>
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-400/10 text-sky-300">
@@ -467,7 +467,7 @@ export default function AthleteProfilePage() {
               </datalist>
             ) : null}
             <p className={HELP_TEXT_CLASS_NAME}>
-              Type or pick an IANA timezone so daily syncs and weekly recap windows reset on your local calendar day.
+              Type or pick an IANA timezone so plans and calendar dates follow your local day.
             </p>
             {browserTimezone ? (
               <p className={HELP_TEXT_CLASS_NAME}>Detected in this browser: {browserTimezone}</p>

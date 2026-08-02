@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.models.active_analysis import ActiveAnalysis
 from api.models.active_season_plan import ActiveSeasonPlan
 from api.models.active_weekly_plan import ActiveWeeklyPlan
+from services.ai.head_coach.artifacts import ExecutionPlanArtifactV3
 
 
 async def get_active_analysis(db: AsyncSession, *, user_id: uuid.UUID) -> dict | None:
@@ -73,21 +74,7 @@ async def toggle_day_completion(db: AsyncSession, *, user_id: uuid.UUID, day_id:
     if not active or not active.plan_data:
         raise ValueError("No active weekly plan found")
 
-    plan_data = dict(active.plan_data)
-    weeks = plan_data.get("weeks", [])
-
-    found = False
-    for week in weeks:
-        for day in week.get("days", []):
-            if day.get("day_id") == day_id:
-                day["is_completed"] = is_completed
-                found = True
-                break
-        if found:
-            break
-
-    if not found:
-        raise ValueError(f"Day ID {day_id} not found in active weekly plan")
+    plan_data = set_day_completion(dict(active.plan_data), day_id=day_id, is_completed=is_completed)
 
     active.plan_data = plan_data
     # SQLAlchemy requires flagging JSONB mutations manually
@@ -105,3 +92,22 @@ async def toggle_day_completion(db: AsyncSession, *, user_id: uuid.UUID, day_id:
         "source_job_id": str(active.source_job_id),
         "updated_at": active.updated_at.isoformat(),
     }
+
+
+def set_day_completion(plan_data: dict, *, day_id: str, is_completed: bool) -> dict:
+    schema_version = plan_data.get("schema_version", 1)
+    if schema_version not in {1, 3}:
+        raise ValueError(f"Unsupported weekly-plan schema version: {schema_version}")
+    if schema_version == 3:
+        validated = ExecutionPlanArtifactV3.model_validate(plan_data)
+        plan_data = validated.model_dump(mode="json")
+
+    for week in plan_data.get("weeks", []):
+        for day in week.get("days", []):
+            if day.get("day_id") != day_id:
+                continue
+            day["is_completed"] = is_completed
+            if schema_version == 3:
+                return ExecutionPlanArtifactV3.model_validate(plan_data).model_dump(mode="json")
+            return plan_data
+    raise ValueError(f"Day ID {day_id} not found in active weekly plan")

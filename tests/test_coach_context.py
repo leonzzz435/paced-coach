@@ -6,7 +6,7 @@ import pytest
 
 from api.models.coach_event import CoachEvent
 from api.models.coach_thread import CoachThread
-from api.services.coach_context import build_turn_context
+from api.services.coach_context import _summarize_current_weekly_plan_identity, build_turn_context
 from api.services.coach_event_store import EVENT_TOOL_TRACE
 
 
@@ -31,27 +31,7 @@ class _FakeDb:
 
 class _FakeRegistry:
     def __init__(self):
-        self.training_snapshot_called = False
-        self.expert_summary_called = False
         self.current_weekly_plan_called = False
-
-    async def get_training_snapshot(self):
-        self.training_snapshot_called = True
-        return {
-            "as_of_date": "2026-02-27",
-            "sessions_7d": 5,
-            "competition_proximity_days": 12,
-            "load_trend": "rising",
-        }
-
-    async def get_expert_analysis_summary(self):
-        self.expert_summary_called = True
-        return {
-            "run_date": "2026-02-20",
-            "age_days": 7,
-            "staleness": "moderate",
-            "domains": {},
-        }
 
     async def get_upcoming_competitions(self):
         return [{"name": "A race", "date": "2026-03-11"}]
@@ -84,22 +64,14 @@ class _FakeRegistry:
             ],
         }
 
+    async def get_current_season_plan(self):
+        return {"schema_version": 3, "strategy_id": "strategy-1"}
+
     def get_observability_snapshot(self):
         return {
             "tool_usage": {},
             "cache_keys": [],
-            "provider": {"training_providers": {"strava": {"kind": None, "available": False}}},
-            "evidence_profile": {
-                "connected_mode": "strava_only",
-                "dimensions": {
-                    "activity_history": {"availability": "strong", "confidence": "high"},
-                    "recovery_biometrics": {"availability": "none", "confidence": "low"},
-                },
-                "claims_policy": {
-                    "can_make_activity_completeness_claims": True,
-                    "can_make_readiness_claims": False,
-                },
-            },
+            "source_of_truth": "local_athlete_owned",
         }
 
 
@@ -163,17 +135,13 @@ async def test_build_turn_context_coach_chat_mode_skips_prefetch_and_includes_ti
         ui_context={"source": "today_mission", "day": {"day_id": "2026-02-27"}},
     )
 
-    assert registry.training_snapshot_called is False
-    assert registry.expert_summary_called is False
     assert registry.current_weekly_plan_called is True
     assert context["mode"] == "coach_chat"
     assert isinstance(context["now_utc"], str)
     assert context["ui_context"] == {"source": "today_mission", "day": {"day_id": "2026-02-27"}}
-    assert context["training_snapshot"] is None
-    assert context["expert_analysis_summary"] is None
-    assert context["evidence_profile"]["connected_mode"] == "strava_only"
-    assert context["evidence_profile"]["claims_policy"]["can_make_readiness_claims"] is False
+    assert context["current_season_plan"]["strategy_id"] == "strategy-1"
     assert context["current_weekly_plan_identity"]["plan_id"] == "plan-1"
+    assert context["current_weekly_plan_identity"]["schema_version"] == 1
     assert context["current_weekly_plan_identity"]["weeks"][0]["week_id"] == "wk-2026-02-23"
     assert context["current_weekly_plan_identity"]["weeks"][0]["days"][0]["day_id"] == "2026-02-27"
     assert context["current_weekly_plan_identity"]["weeks"][0]["days"][0]["workout_title"] == "Strength-Endurance"
@@ -185,13 +153,13 @@ async def test_build_turn_context_coach_chat_mode_skips_prefetch_and_includes_ti
     assert context["long_term_memory"]["transient_state_notes"] == []
     assert context["long_term_memory"]["memory_updated_at"] is None
     assert context["long_term_memory"]["memory_age_days"] is None
-    assert context["tool_observability"]["provider"]["training_providers"]["strava"]["available"] is False
+    assert context["tool_observability"]["source_of_truth"] == "local_athlete_owned"
     assert len(context["recent_tool_results"]) == 1
     assert len(context["recent_events"]) == 3
 
 
 @pytest.mark.asyncio
-async def test_build_turn_context_proactive_mode_prefetches_snapshot_and_expert_summary():
+async def test_build_turn_context_proactive_mode_uses_same_local_sources():
     user_id = uuid.uuid4()
     thread_id = uuid.uuid4()
     thread = CoachThread(id=thread_id, user_id=user_id, latest_seq=1, status="active")
@@ -218,16 +186,58 @@ async def test_build_turn_context_proactive_mode_prefetches_snapshot_and_expert_
         user_message="Daily readiness and training status check.",
     )
 
-    assert registry.training_snapshot_called is True
-    assert registry.expert_summary_called is True
     assert registry.current_weekly_plan_called is True
     assert context["mode"] == "proactive_eval"
-    assert context["training_snapshot"]["sessions_7d"] == 5
-    assert context["evidence_profile"]["connected_mode"] == "strava_only"
-    assert context["expert_analysis_summary"]["staleness"] == "moderate"
+    assert context["current_season_plan"]["strategy_id"] == "strategy-1"
     assert context["current_weekly_plan_identity"]["weeks"][0]["days"][0]["day_label"] == "Fri — Strength-Endurance"
-    assert context["derived_context"]["competition_context"]["competition_proximity_days"] == 12
+    assert context["derived_context"]["competition_context"]["competition_proximity_days"] is None
     assert context["long_term_memory"]["athlete_model"] == {"goal_state": "A-race"}
+
+
+def test_schema_v3_plan_identity_preserves_day_and_session_patch_targets():
+    identity = _summarize_current_weekly_plan_identity(
+        {
+            "schema_version": 3,
+            "plan_id": "execution-3",
+            "version": 4,
+            "weeks": [
+                {
+                    "week_id": "week-1",
+                    "title": "Foundation",
+                    "start_date": "2026-08-03",
+                    "end_date": "2026-08-09",
+                    "days": [
+                        {
+                            "day_id": "day-2026-08-03",
+                            "date": "2026-08-03",
+                            "label": "Monday",
+                            "focus_type": "aerobic",
+                            "intensity": "low",
+                            "total_duration_min": 45,
+                            "is_completed": False,
+                            "sessions": [
+                                {
+                                    "session_id": "session-2026-08-03-run",
+                                    "title": "Easy run",
+                                    "duration_min": 45,
+                                    "intensity": "low",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert identity is not None
+    assert identity["schema_version"] == 3
+    assert identity["weeks"][0]["title"] == "Foundation"
+    day = identity["weeks"][0]["days"][0]
+    assert day["label"] == "Monday"
+    assert day["total_duration_min"] == 45
+    assert day["sessions"][0]["session_id"] == "session-2026-08-03-run"
+    assert "workout_title" not in day
 
 
 @pytest.mark.asyncio

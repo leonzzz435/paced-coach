@@ -1,11 +1,12 @@
+import type { SemanticBlockV3, WeeklyPlanV3 } from "@/components/plan-viewer/types";
 import type { UiHtmlBlock, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 import type { CoachQuota } from "@/lib/types/quota";
 
 export type WeeklyRecapPendingAction = "none" | "follow_up" | "proposal" | "follow_up_and_proposal";
 
 export type WeeklyRecapNarrative = {
-  this_week_blocks: UiHtmlBlock[];
-  looking_ahead_blocks: UiHtmlBlock[];
+  this_week_blocks: Array<SemanticBlockV3 | UiHtmlBlock>;
+  looking_ahead_blocks: Array<SemanticBlockV3 | UiHtmlBlock>;
 };
 
 export type WeeklyRecapResponse = {
@@ -18,8 +19,8 @@ export type WeeklyRecapResponse = {
   created_at: string;
   updated_at: string;
   narrative: WeeklyRecapNarrative;
-  base_weekly_plan?: UiWeeklyPlan | null;
-  preview_weekly_plan?: UiWeeklyPlan | null;
+  base_weekly_plan?: UiWeeklyPlan | WeeklyPlanV3 | null;
+  preview_weekly_plan?: UiWeeklyPlan | WeeklyPlanV3 | null;
   ops?: Array<Record<string, unknown>>;
   follow_up_question?: string | null;
   athlete_response?: string | null;

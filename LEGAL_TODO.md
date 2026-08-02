@@ -1,6 +1,6 @@
 # LEGAL TODO
 
-Status date: 2026-06-13
+Status date: 2026-07-13
 Scope: `web/app` public legal pages (`/impressum`, `/privacy`, `/terms`, `/support`, `/delete`)
 
 ## Local-First OSS Review
@@ -18,7 +18,9 @@ Scope: `web/app` public legal pages (`/impressum`, `/privacy`, `/terms`, `/suppo
 
 ## Privacy Hardening
 
-- [x] Document the local-first processor posture: local infrastructure, AI APIs, Strava, WHOOP, no hidden telemetry, and optional LangSmith.
+- [x] Document the local-first processor posture: local infrastructure, configured AI APIs, no hidden telemetry, and optional LangSmith.
+- [x] Review the current Strava and WHOOP API terms and remove both connectors from the v2.2.0 public runtime and launch claims.
+- [ ] Reassess a future connector only after written provider permission or a clearly compatible API contract is documented.
 - [x] Add cookie/tracking wording that reflects the current essential-technology posture.
 - [ ] Verify exact hosting and storage regions before publishing any region-specific privacy claim.
 - [ ] Verify backup retention wording against the current local setup.
@@ -33,4 +35,6 @@ Scope: `web/app` public legal pages (`/impressum`, `/privacy`, `/terms`, `/suppo
 ## External Review
 
 - [ ] Run one legal review by a Germany-based lawyer before broad public distribution.
+- [ ] Review the `v2.2.0` release candidate's `/impressum`, `/privacy`, `/terms`, `/support`, and `/delete` pages against the local-first distribution model.
+- [ ] Apply counsel-required corrections, then rerun the public release audit and exact-commit CI before publication.
 - [ ] Recheck all legal pages after each major product change, especially new data sources or managed hosting.

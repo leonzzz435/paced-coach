@@ -7,7 +7,6 @@ import pytest
 
 from api.models.coach_event import CoachEvent
 from api.models.coach_thread import CoachThread
-from api.models.credentials import WhoopCredentials
 from api.services import coach_event_store
 from api.services.coach_event_store import (
     EVENT_PROPOSAL_CREATED,
@@ -19,30 +18,6 @@ from api.services.coach_event_store import (
     get_or_create_coach_thread,
     serialize_thread_event,
 )
-from api.services.full_run_policy import WeeklyRecapAvailability
-from api.services.integration_status import build_integrations_status
-
-
-async def _healthy_integrations_status(*_args, **_kwargs):
-    return build_integrations_status(
-        settings=cast(
-            "Any",
-            SimpleNamespace(
-                whoop_oauth_client_id="client-id",
-                whoop_oauth_client_secret="client-secret",
-            ),
-        ),
-        crypto_service=None,
-        whoop=WhoopCredentials(
-            user_id=uuid.uuid4(),
-            encrypted_access_token=b"access-token",
-            encrypted_refresh_token=b"refresh-token",
-            expires_at=datetime(2026, 3, 8, tzinfo=UTC),
-            scope="offline read:recovery",
-            whoop_user_id=42,
-        ),
-        now=datetime(2026, 3, 7, tzinfo=UTC),
-    )
 
 
 def test_serialize_thread_event_uses_normalized_proposal_status():
@@ -148,30 +123,8 @@ async def test_build_thread_projection_uses_explicit_thread_snapshot(monkeypatch
     async def _fake_get_quota(*_args, **_kwargs):
         return {"is_limited": False}
 
-    async def _fake_recap_availability(*_args, **_kwargs):
-        return WeeklyRecapAvailability(
-            allowed=True,
-            reason="eligible",
-            last_full_run_at=None,
-            current_anchor_utc=None,
-            timezone="UTC",
-            window_start=None,
-            window_end=None,
-            next_allowed_at=None,
-            existing_run_id=None,
-        )
-
     monkeypatch.setattr(coach_event_store, "get_thread_events", _fake_get_thread_events)
     monkeypatch.setattr(coach_event_store, "get_coach_weekly_quota", _fake_get_quota)
-    monkeypatch.setattr(coach_event_store, "evaluate_weekly_recap_availability", _fake_recap_availability)
-    monkeypatch.setattr(coach_event_store, "load_integrations_status", _healthy_integrations_status)
-    async def _fake_usage_context(*_args, **_kwargs):
-        return SimpleNamespace(
-            has_access=True,
-            effective_plan=SimpleNamespace(weekly_recap_included=True),
-        )
-
-    monkeypatch.setattr(coach_event_store, "get_local_usage_context", _fake_usage_context)
 
     fake_db = _FakeDb(
         [
@@ -251,30 +204,8 @@ async def test_build_thread_projection_hydrates_answered_recap_follow_up(monkeyp
     async def _fake_get_quota(*_args, **_kwargs):
         return {"is_limited": False}
 
-    async def _fake_recap_availability(*_args, **_kwargs):
-        return WeeklyRecapAvailability(
-            allowed=True,
-            reason="eligible",
-            last_full_run_at=None,
-            current_anchor_utc=None,
-            timezone="UTC",
-            window_start=None,
-            window_end=None,
-            next_allowed_at=None,
-            existing_run_id=None,
-        )
-
-    async def _fake_usage_context(*_args, **_kwargs):
-        return SimpleNamespace(
-            has_access=True,
-            effective_plan=SimpleNamespace(weekly_recap_included=True),
-        )
-
     monkeypatch.setattr(coach_event_store, "get_thread_events", _fake_get_thread_events)
     monkeypatch.setattr(coach_event_store, "get_coach_weekly_quota", _fake_get_quota)
-    monkeypatch.setattr(coach_event_store, "evaluate_weekly_recap_availability", _fake_recap_availability)
-    monkeypatch.setattr(coach_event_store, "load_integrations_status", _healthy_integrations_status)
-    monkeypatch.setattr(coach_event_store, "get_local_usage_context", _fake_usage_context)
 
     fake_db = _FakeDb(
         [

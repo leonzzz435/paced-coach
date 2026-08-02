@@ -7,7 +7,7 @@ This app is designed for a single local operator on `localhost`.
 - Docker with Docker Compose v2
 - Pixi
 - Node.js 24 and npm
-- One LLM API key: `OPENAI_API_KEY` for the default mode, or `ANTHROPIC_API_KEY` with `AI_MODE=anthropic`
+- One OpenAI API key: `OPENAI_API_KEY`
 
 ## Setup
 
@@ -25,20 +25,24 @@ for reproducible local setup.
 
 Open `http://localhost:3000/app`.
 
+## First Useful Run
+
+No wearable is required. With an OpenAI API key configured:
+
+1. Describe your training history, availability, constraints, and primary goals in the athlete profile.
+2. Add a target race or a primary goal.
+3. Generate your season roadmap and 28-day execution block.
+4. Open the plan calendar, then continue the same context in coach chat.
+
+Version 2.2.0 has no external training-data connectors. The complete release path is profile, goal/race, plan, calendar, and coach chat.
+
 ## Required Configuration
 
-Set `OPENAI_API_KEY` in `.env` for the default GPT/OpenAI routing:
+Set `OPENAI_API_KEY` in `.env`:
 
 ```bash
 OPENAI_API_KEY=...
 AI_MODE=cost_effective
-```
-
-Or use Anthropic routing:
-
-```bash
-ANTHROPIC_API_KEY=...
-AI_MODE=anthropic
 ```
 
 The default local mode is:
@@ -70,24 +74,6 @@ pixi run python scripts/local_owner_report.py
 Do not reset or recreate the database when preserving an existing training plan.
 
 Detailed backup and dry-run migration guidance lives in [data-preservation.md](data-preservation.md).
-
-## Optional Strava/WHOOP
-
-Connected sources are optional. Manual plan generation works without them.
-
-To enable OAuth, generate a `FERNET_KEY`, configure the provider app callback URL, then set the provider env values.
-
-Local callbacks:
-
-```bash
-http://localhost:3000/app/api/oauth/strava/callback
-http://localhost:3000/app/api/oauth/whoop/callback
-```
-
-Detailed connector setup:
-
-- [connect-strava.md](connect-strava.md)
-- [connect-whoop.md](connect-whoop.md)
 
 ## Network Boundary
 

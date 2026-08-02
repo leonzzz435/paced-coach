@@ -1,43 +1,13 @@
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
 
-from api.models.credentials import WhoopCredentials
-from api.models.integration_connection import IntegrationConnection
 from api.services import recap
 from api.services.full_run_policy import WeeklyRecapAvailability
-from api.services.integration_status import build_integrations_status
-
-
-def _healthy_integrations_status():
-    return build_integrations_status(
-        settings=cast(
-            "Any",
-            SimpleNamespace(
-                whoop_oauth_client_id="client-id",
-                whoop_oauth_client_secret="client-secret",
-            ),
-        ),
-        crypto_service=None,
-        whoop=WhoopCredentials(
-            user_id=uuid.uuid4(),
-            encrypted_access_token=b"access-token",
-            encrypted_refresh_token=b"refresh-token",
-            expires_at=datetime(2026, 3, 8, tzinfo=UTC),
-            scope="offline read:recovery",
-            whoop_user_id=42,
-        ),
-        now=datetime(2026, 3, 7, tzinfo=UTC),
-    )
-
-
-async def _fake_load_integrations_status(*_args, **_kwargs):
-    return _healthy_integrations_status()
 
 
 class _RefreshTrackingDb:
@@ -147,7 +117,6 @@ def _patch_completed_recap_dependencies(monkeypatch, *, db, recap_run, anchor, w
     serializer = _RecapSerializerSpy(db)
     monkeypatch.setattr(recap, "get_local_usage_context", _fake_recap_usage_context)
     monkeypatch.setattr(recap, "evaluate_weekly_recap_availability", _eligible_recap_availability(anchor, window_start, window_end))
-    monkeypatch.setattr(recap, "load_integrations_status", _fake_load_integrations_status)
     monkeypatch.setattr(recap, "_get_recap_run_for_anchor", _fake_no_recap_run_for_anchor)
     monkeypatch.setattr(recap, "_prepare_pending_recap_run", _fake_prepare_pending_recap_run)
     monkeypatch.setattr(recap, "_get_active_weekly_plan_for_recap", _fake_get_active_weekly_plan_for_recap)
@@ -179,7 +148,6 @@ async def test_execute_recap_turn_blocks_when_window_not_open(monkeypatch):
         )
 
     monkeypatch.setattr(recap, "evaluate_weekly_recap_availability", _fake_availability)
-    monkeypatch.setattr(recap, "load_integrations_status", _fake_load_integrations_status)
     async def _fake_usage_context(*_args, **_kwargs):
         return SimpleNamespace(
             has_access=True,
@@ -220,7 +188,6 @@ async def test_execute_recap_turn_skips_usage_gate_when_dev_bypass_enabled(monke
         )
 
     monkeypatch.setattr(recap, "evaluate_weekly_recap_availability", _fake_availability)
-    monkeypatch.setattr(recap, "load_integrations_status", _fake_load_integrations_status)
 
     async def _fake_usage_context(*_args, **_kwargs):
         return SimpleNamespace(
@@ -294,7 +261,7 @@ async def test_execute_recap_turn_refreshes_run_before_serializing_completed_rec
 
 
 @pytest.mark.asyncio
-async def test_execute_recap_turn_blocks_when_training_provider_was_disconnected(monkeypatch):
+async def test_execute_recap_turn_continues_when_training_provider_is_disconnected(monkeypatch):
     async def _fake_usage_context(*_args, **_kwargs):
         return SimpleNamespace(
             has_access=True,
@@ -314,41 +281,20 @@ async def test_execute_recap_turn_blocks_when_training_provider_was_disconnected
             existing_run_id=None,
         )
 
-    async def _fake_disconnected_integrations(*_args, **_kwargs):
-        return build_integrations_status(
-            settings=cast(
-                "Any",
-                SimpleNamespace(
-                    whoop_oauth_client_id="client-id",
-                    whoop_oauth_client_secret="client-secret",
-                ),
-            ),
-            crypto_service=None,
-            whoop=None,
-            whoop_history=IntegrationConnection(
-                user_id=uuid.uuid4(),
-                provider="whoop",
-                first_connected_at=datetime(2026, 3, 1, tzinfo=UTC),
-                last_connected_at=datetime(2026, 3, 4, tzinfo=UTC),
-                last_disconnected_at=datetime(2026, 3, 7, tzinfo=UTC),
-                last_disconnect_reason="user_initiated",
-            ),
-            now=datetime(2026, 3, 7, tzinfo=UTC),
-        )
+    async def _provider_free_path_reached(*_args, **_kwargs):
+        raise RuntimeError("provider-free recap path reached")
 
     monkeypatch.setattr(recap, "get_local_usage_context", _fake_usage_context)
     monkeypatch.setattr(recap, "evaluate_weekly_recap_availability", _fake_availability)
-    monkeypatch.setattr(recap, "load_integrations_status", _fake_disconnected_integrations)
+    monkeypatch.setattr(recap, "_get_recap_run_for_anchor", _provider_free_path_reached)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(RuntimeError, match="provider-free recap path reached"):
         await recap.execute_recap_turn(
             object(),  # type: ignore[arg-type]
             user_id=uuid.uuid4(),
             thread=MagicMock(),
         )
 
-    assert exc.value.status_code == 400
-    assert exc.value.detail == "WHOOP was disconnected. Reconnect it in Settings before starting a run."
 
 
 @pytest.mark.asyncio

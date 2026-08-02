@@ -9,7 +9,7 @@ export async function proxyCoachTurn(req: Request, deps?: Partial<CoachTurnProxy
 
     const bodyText = await req.text();
     const apiBase = (process.env.API_BASE_URL ?? "http://localhost:8000").replace(/\/+$/, "");
-    const timeoutMs = deps?.timeoutMs ?? null;
+    const timeoutMs = deps?.timeoutMs ?? 630_000;
     const controller = timeoutMs === null ? null : new AbortController();
     const timeoutId = timeoutMs === null ? null : setTimeout(() => controller?.abort(), timeoutMs);
     let upstream: Response;

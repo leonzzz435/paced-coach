@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 import BlockDisclosure from "@/components/plan-viewer/components/block-disclosure";
-import { localYYYYMMDD } from "@/lib/date-utils";
+import MarkdownSnippet from "@/components/markdown_snippet";
+import type { WeeklyPlanV3 } from "@/components/plan-viewer/types";
+import { athleteLocalYYYYMMDD } from "@/lib/date-utils";
 import { openCoachWithPrefill } from "@/lib/types/ask-about";
 import type { UiDayPlan, UiDisclosureNode, UiHtmlBlock, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 
@@ -40,11 +43,32 @@ function accentForIntensity(intensity: UiDayPlan["estimated_intensity"] | null, 
 }
 
 type Props = {
-  weeklyPlan: UiWeeklyPlan;
+  weeklyPlan: UiWeeklyPlan | WeeklyPlanV3;
   warnings?: string[];
   dayOverride?: UiDayPlan;
   dailySyncCompleted?: boolean;
+  nowIso?: string;
 };
+
+type V3Day = WeeklyPlanV3["weeks"][number]["days"][number];
+type V3Week = WeeklyPlanV3["weeks"][number];
+
+function isWeeklyPlanV3(plan: UiWeeklyPlan | WeeklyPlanV3): plan is WeeklyPlanV3 {
+  return plan.schema_version === 3 && "summary_markdown" in plan;
+}
+
+function findV3TodayEntry(weeklyPlan: WeeklyPlanV3, todayIso: string): { week: V3Week; day: V3Day } | null {
+  for (const week of weeklyPlan.weeks) {
+    const day = week.days.find((candidate) => candidate.date === todayIso);
+    if (day) return { week, day };
+  }
+  return null;
+}
+
+function athleteLocalHour(nowIso?: string): number {
+  const hour = nowIso?.match(/^\d{4}-\d{2}-\d{2}T(\d{2})/)?.[1];
+  return hour == null ? new Date().getHours() : Number(hour);
+}
 
 function findTodayEntry(weeklyPlan: UiWeeklyPlan, todayIso: string, dayOverride?: UiDayPlan | null) {
   for (const week of weeklyPlan.weeks ?? []) {
@@ -62,34 +86,54 @@ function findTodayEntry(weeklyPlan: UiWeeklyPlan, todayIso: string, dayOverride?
   return null;
 }
 
-export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, dailySyncCompleted }: Props) {
-  const todayIso = useMemo(() => localYYYYMMDD(), []);
-  const todayEntry = useMemo(() => findTodayEntry(weeklyPlan, todayIso, dayOverride), [dayOverride, todayIso, weeklyPlan]);
-  const today = todayEntry?.day ?? null;
-  const todayWeek = todayEntry?.week ?? null;
+export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, dailySyncCompleted, nowIso }: Props) {
+  const todayIso = athleteLocalYYYYMMDD(nowIso);
+  const v3Entry = useMemo(
+    () => (isWeeklyPlanV3(weeklyPlan) ? findV3TodayEntry(weeklyPlan, todayIso) : null),
+    [todayIso, weeklyPlan],
+  );
+  const overrideMatchesToday = Boolean(
+    dayOverride &&
+      (dayOverride.date === todayIso || (dayOverride.day_id && dayOverride.day_id === v3Entry?.day.day_id)),
+  );
+  const legacyEntry = useMemo(
+    () => (isWeeklyPlanV3(weeklyPlan) ? null : findTodayEntry(weeklyPlan, todayIso, dayOverride)),
+    [dayOverride, todayIso, weeklyPlan],
+  );
+  const v3Day = overrideMatchesToday ? null : v3Entry?.day ?? null;
+  const v3Week = overrideMatchesToday ? null : v3Entry?.week ?? null;
+  const today = overrideMatchesToday ? dayOverride ?? null : legacyEntry?.day ?? null;
+  const todayWeek = legacyEntry?.week ?? v3Week;
 
-  const isEvening = new Date().getHours() >= 18;
+  const isEvening = athleteLocalHour(nowIso) >= 18;
   const isRestDay = Boolean(
-    today &&
-    (today.estimated_intensity === "rest" || (!today.focus_type && (today.blocks?.length ?? 0) === 0 && (today.nodes?.length ?? 0) === 0))
+    v3Day?.intensity === "rest" ||
+      (today &&
+        (today.estimated_intensity === "rest" ||
+          (!today.focus_type && (today.blocks?.length ?? 0) === 0 && (today.nodes?.length ?? 0) === 0)))
   );
 
-  const accent = accentForIntensity(today?.estimated_intensity ?? null, isRestDay);
+  const accent = accentForIntensity(today?.estimated_intensity ?? v3Day?.intensity ?? null, isRestDay);
 
-  const headerLabel = today?.day_label ?? (isRestDay ? "Recovery Day" : "Session TBD");
-  const durationBadge = today?.estimated_duration_min != null ? `${today.estimated_duration_min} min` : isRestDay ? "Rest" : "Duration TBD";
+  const headerLabel = today?.day_label ?? v3Day?.sessions[0]?.title ?? v3Day?.label ?? (isRestDay ? "Recovery Day" : "Session TBD");
+  const duration = today?.estimated_duration_min ?? v3Day?.total_duration_min;
+  const durationBadge = duration != null ? (duration === 0 ? "Rest" : `${duration} min`) : isRestDay ? "Rest" : "Duration TBD";
   const readinessNote = today?.readiness_note?.trim() ?? null;
 
-  const askCoachPrefill = today
+  const actionableDate = today?.date ?? v3Day?.date;
+  const actionableDayId = today?.day_id ?? v3Day?.day_id;
+  const actionableLabel = today?.day_label ?? v3Day?.label;
+  const actionableWorkoutTitle = today?.workout_title ?? v3Day?.sessions[0]?.title;
+  const askCoachPrefill = actionableDate && actionableDayId
     ? {
-        message: `Today (${today.day_label ?? today.date}): assess my readiness (GO / MODIFY / PROTECT) for this session and propose plan patch ops if needed.`,
+        message: `Today (${actionableLabel ?? actionableDate}): assess my readiness (GO / MODIFY / PROTECT) for this session and propose plan patch ops if needed.`,
         uiContext: {
           source: "today_mission" as const,
-          day_id: today.day_id,
+          day_id: actionableDayId,
           week_id: todayWeek?.week_id ?? null,
-          date: today.date,
-          day_label: today.day_label ?? null,
-          workout_title: today.workout_title ?? null,
+          date: actionableDate,
+          day_label: actionableLabel ?? null,
+          workout_title: actionableWorkoutTitle ?? null,
         },
       }
     : {
@@ -120,7 +164,7 @@ export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, d
               </span>
               {!isRestDay && (
                 <span className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1 text-xs font-medium text-[var(--text-secondary)]">
-                  {intensityLabel(today?.estimated_intensity ?? null)}
+                  {intensityLabel(today?.estimated_intensity ?? v3Day?.intensity ?? null)}
                 </span>
               )}
             </div>
@@ -128,7 +172,7 @@ export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, d
 
           <button
             type="button"
-            className="shrink-0 self-start rounded-full bg-[var(--accent-coach)] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 hover:brightness-110 active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-coach)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+            className="min-h-11 shrink-0 self-start rounded-full bg-[var(--accent-coach)] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 hover:brightness-110 active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-coach)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             onClick={() => openCoachWithPrefill(askCoachPrefill)}
           >
             Ask Coach
@@ -154,7 +198,33 @@ export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, d
             </div>
           ) : null}
 
-          {today ? (
+          {v3Day ? (
+            <div className="mt-2 space-y-4">
+              {v3Day.sessions.length > 0 ? (
+                v3Day.sessions.map((session) => (
+                  <article key={session.session_id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{session.sport}</div>
+                      <div className="text-xs tabular-nums text-[var(--text-muted)]">{session.duration_min} min</div>
+                    </div>
+                    <h3 className="mt-2 text-base font-semibold text-[var(--text-primary)]">{session.title}</h3>
+                    <MarkdownSnippet markdown={session.objective_markdown} className="mt-2 text-sm leading-6 text-[var(--text-secondary)]" />
+                    <details className="group mt-3 border-t border-[var(--border)] pt-3">
+                      <summary className="cursor-pointer text-sm font-semibold text-sky-300">Show prescription</summary>
+                      <MarkdownSnippet markdown={session.prescription_markdown} className="mt-2 text-sm leading-6 text-[var(--text-secondary)]" />
+                    </details>
+                  </article>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5 text-sm leading-6 text-[var(--text-secondary)]">
+                  This is a planned recovery day. Protect the recovery intent and use the full plan for the coach&apos;s context.
+                </div>
+              )}
+              <Link className="inline-flex text-sm font-semibold text-sky-300 transition hover:text-sky-200" href="/app/plan">
+                Open full 28-day plan →
+              </Link>
+            </div>
+          ) : today ? (
             blocks.length > 0 ? (
               <div className="mt-6 flex flex-col gap-6">
                 {blocks.map((block) => (

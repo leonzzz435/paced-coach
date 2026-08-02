@@ -1,179 +1,85 @@
-# AI → UI Contract: Markdown-First Architecture
+# Head Coach, Artifact, and UI Ownership Contract
 
-**Status**: Implemented (schema v2 live)  
-**Date**: 2026-02-14  
+## Source of ownership
 
----
+paced.coach has one accountable coaching owner: the Head Coach. Initial planning, plan refreshes, coach chat, and memory extraction use semantic run profiles over the shared LangChain `create_agent` factory. A run profile selects the model role, reasoning effort, tool capabilities, mutation authority, and call limits; entry points do not select model names directly. The v2.2 runtime has no wearable/training-data connectors, daily sync, or weekly recap producer.
 
-## Architecture
+The runtime has four distinct ownership layers:
 
-```
-Planners/Synthesis → rich markdown → Formatter nodes → UI Blocks (HTML Blocks schema)
-```
+| Layer | Owns | Must not own |
+| --- | --- | --- |
+| Head Coach | Coaching judgment, assumptions, uncertainty, proposal intent, semantic presentation intent | Direct database mutation, auth, quota, retries, CSS |
+| LangGraph execution | Durable progress, checkpoints, interrupts, resume state | Canonical plans or user-visible history |
+| API/worker services | Owner checks, idempotency, validation, proposal acceptance, atomic persistence, cost linkage | Coaching heuristics or rule-authored fallback plans |
+| React | Accessible components, layout, responsive behavior, safe Markdown rendering | Reinterpreting coaching decisions or accepting arbitrary model CSS/HTML |
 
-**Principle**: LLMs reason freely in markdown. Dedicated formatter nodes convert markdown to structured UI documents. The UI gets stable IDs and layout anchors; the LLM gets creative freedom.
+PostgreSQL owns canonical athlete/profile/calendar records, Coach Events, accepted plans, and proposal state. LangGraph checkpoints are execution state with bounded retention; they are never the canonical coaching record.
 
-### Data Flow
+## Runtime flow
 
-```mermaid
-graph LR
-    subgraph "Analysis Stream"
-        SN["Synthesis"] -->|"markdown"| PR["Plot Resolution"]
-        PR --> AF["Analysis Formatter"]
-        AF -->|"UiAnalysis"| State
-    end
-
-    subgraph "Planning Stream"
-        SP["Season Planner"] -->|"markdown → state"| WP["Weekly Planner"]
-        WP -->|"markdown"| PF["Plan Formatter"]
-        PF -->|"UiSeasonPlan + UiWeeklyPlan"| State
-    end
-```
-
-### Key design choices
-
-| Choice | Rationale |
-|---|---|
-| Planners output **markdown**, not structured JSON | LLMs reason best in natural language. No schema constraints limiting output quality. |
-| Season plan markdown flows to weekly planner as context | Natural data flow — no information loss from forced structuring. |
-| **Formatter nodes** convert markdown → UI blocks | Narrow agent scope (Skill #3). Schema changes are isolated to formatters. |
-| `UiHtmlBlock` containers (`blocks[]`, `notes_blocks[]`) | Rich HTML stays inside typed blocks with stable keys/variants for deterministic rendering. |
-| Deterministic **post-fill** for metadata | `plan_id`, `athlete_name`, `created_at` are set by node code, not the LLM. |
-| No prescriptive count constraints in prompts | Agents decide how many KPIs, sections, phases, weeks based on the data. |
-
----
-
-## Schema
-
-### Weekly Plan
-
-```python
-class UiHtmlBlock(BaseModel):
-    type: Literal["html"] = "html"
-    key: str
-    variant: Literal["workout", "support", "fueling", "checklist", "callout", "notes", "meta", "generic"]
-    title: str | None = None
-    tone: Literal["good", "warning", "danger", "neutral"] | None = None
-    content_html: str
-
-class UiDayPlan(BaseModel):
-    day_id: str
-    date: datetime.date
-    day_label: str | None = None
-    focus_type: str | None = None
-    blocks: list[UiHtmlBlock] = []
-
-class UiWeekPlan(BaseModel):
-    week_id: str
-    week_label: str | None = None
-    start_date: datetime.date
-    end_date: datetime.date
-    notes_blocks: list[UiHtmlBlock] = []
-    days: list[UiDayPlan]
-
-class UiWeeklyPlan(BaseModel):
-    type: Literal["weekly_plan"] = "weekly_plan"
-    plan_id: str = ""              # post-filled
-    schema_version: int = 2
-    version: int = 1
-    athlete_name: str = ""         # post-filled
-    created_at: str | None = None  # post-filled
-    global_blocks: list[UiHtmlBlock] = []
-    weeks: list[UiWeekPlan]
+```text
+Athlete-declared context + canonical local records
+                         │
+                         ▼
+              semantic Head Coach profile
+           (complete context, capability tools)
+                         │
+               validated structured output
+                         │
+          ┌──────────────┴──────────────┐
+          ▼                             ▼
+     direct answer              proposal or plan artifacts
+                                        │
+                              deterministic validation
+                                        │
+                          explicit commit / accept boundary
+                                        │
+                                        ▼
+                              canonical PostgreSQL state
 ```
 
-### Season Plan
+Athlete declarations and canonical local records are the planning evidence. The active tool registry reads the athlete profile, competitions, current season strategy, and current execution block; it contains no provider tools. Historical provider-era rows remain only where required for non-destructive local reset and data ownership.
 
-```python
-class UiSeasonPhase(BaseModel):
-    phase_id: str
-    title: str
-    start_date: datetime.date
-    end_date: datetime.date
-    blocks: list[UiHtmlBlock] = []
+## Artifact contract
 
-class UiSeasonPlan(BaseModel):
-    type: Literal["season_plan"] = "season_plan"
-    plan_id: str = ""              # post-filled
-    schema_version: int = 2
-    version: int = 1
-    athlete_name: str = ""         # post-filled
-    start_date: datetime.date
-    end_date: datetime.date
-    global_blocks: list[UiHtmlBlock] = []
-    phases: list[UiSeasonPhase]
-```
+New season and execution plans use `schema_version: 3` Pydantic artifacts from `services/ai/head_coach/artifacts.py`.
 
-### Analysis
+They contain:
 
-```python
-class UiKpi(BaseModel):
-    kpi_id: str
-    label: str
-    value: str
-    trend: str | None = None
-    status: Literal["good", "warning", "danger", "neutral"] = "neutral"
+- stable plan, week, day, session, section, and block IDs;
+- typed dates, duration, intensity, completion, assumptions, evidence, safety concerns, and unresolved questions;
+- a Decision Ledger entry explaining material choices;
+- semantic blocks such as workout, intervals, callout, checklist, fueling, recovery, notes, data table, timeline, and disclosure;
+- Markdown narrative fields, never model-authored HTML or CSS.
 
-class UiAnalysisSection(BaseModel):
-    section_id: str
-    title: str
-    tone: Literal["neutral", "good", "warning", "danger"] = "neutral"
-    blocks: list[UiHtmlBlock] = []
+The Head Coach chooses content hierarchy and semantic component intent. React maps that intent to a bounded component catalog. An optional UI Composer may reorganize presentation only when it preserves the artifact semantic hash; it cannot alter coaching facts or prescriptions.
 
-class UiAnalysis(BaseModel):
-    type: Literal["analysis"] = "analysis"
-    analysis_id: str = ""          # post-filled
-    schema_version: int = 2
-    version: int = 1
-    athlete_name: str = ""         # post-filled
-    created_at: str | None = None  # post-filled
-    kpis: list[UiKpi]
-    sections: list[UiAnalysisSection]
-```
+Stored v1 artifacts remain readable through their versioned historical renderers. New generation and mutation paths emit v3. Unknown schema versions fail visibly instead of being guessed.
 
----
+## Validation, repair, and failure
 
-## Design System
+Pydantic structured output is the runtime boundary. Invalid model output is returned to the responsible model for a bounded repair attempt through `ToolStrategy`. Deterministic code may validate identity, dates, schemas, authorization, idempotency, and mutation conflicts.
 
-Formatter prompts reference CSS classes so LLMs produce consistent, styleable HTML:
+There is no rule-authored coaching fallback. If repair is exhausted, the run fails visibly, sanitized diagnostics are recorded, and the previous canonical artifact remains untouched.
 
-| Class | Purpose |
-|---|---|
-| `.kpi-table` | Metric tables with headers and zebra rows |
-| `.callout-warning` / `.callout-good` / `.callout-danger` | Highlighted boxes |
-| `.workout` / `.workout-title` / `.workout-meta` | Workout containers |
-| `.checklist` | `<label><input type="checkbox"> Step text</label>` items |
-| `.code-block` | Monospace data blocks |
-| `.emoji-label` | Inline emoji + text pairs |
+## Mutation contract
 
-The UI provides a shared CSS stylesheet. The LLM writes semantic HTML; the UI controls visual appearance.
+The model may return proposal operations but cannot write an active plan. Services dispatch operations by the active artifact's `schema_version`, build a before/after preview, and persist the proposal against the expected plan version. Only explicit acceptance applies it; stale versions fail with a conflict, and retries remain idempotent.
 
-### Checkbox IDs
+Initial or full plan generation commits the Season Strategy, 28-day Execution Plan, Decision Ledger events, usage linkage, and job result atomically. A clarification pauses through a durable interrupt and resumes the same execution thread.
 
-```html
-<label>
-  <input type="checkbox" id="2026-02-16--0" name="2026-02-16--0">
-  Warm-up: 15' easy jog + 3 build strides
-</label>
-```
+Generation admission is serialized per owner with a PostgreSQL transaction advisory lock. `pending`, `running`, and `awaiting_input` all retain the generation slot. Resume idempotency binds the request key to an answer hash; terminal state retains only the key-plus-hash receipt. If checkpoint finalization fails after the domain transaction commits, the committed job and matching `source_job_id` plan rows remain authoritative and cannot be rewritten as failed.
 
-Sequential `--N` suffixes per day. Frontend persists state keyed to `day_id + "--" + index`.
+## Observability contract
 
----
+Product progress uses semantic lifecycle events such as understanding context, designing strategy, reviewing constraints, awaiting input, building the execution block, and saving the plan. Traces may contain sanitized run metadata, tool names, artifact IDs, token/cost totals, and validation outcomes. They must not contain credentials, provider tokens, raw private context, or hidden reasoning.
 
-## Frontend Integration (Implemented)
+## Source files
 
-UI blocks are produced by formatter nodes and persisted in active plan/analysis payloads. The frontend renders `blocks[]` and `notes_blocks[]` for weekly/season/analysis views (including demo fixtures), branching on `schema_version`.
-
-Current paths in use:
-
-1. **API payloads**: UI schemas are serialized from DB-backed active documents.
-2. **React renderers**: Structural containers (week/day/section cards) render block HTML fragments with shared styles.
-
----
-
-## References
-
-- [Decision log entry](../roadmap/decision_log.md) (2026-02-14)
-- Schema source: `services/ai/langgraph/schemas/ui_blocks.py`
-- Formatter nodes: `analysis_formatter_node.py`, `plan_formatter_node.py`
+- Shared agent factory and profiles: `services/ai/head_coach/agent.py`, `run_profiles.py`
+- Durable execution: `services/ai/head_coach/graph.py`, `checkpointing.py`
+- Canonical artifacts: `services/ai/head_coach/artifacts.py`
+- Proposal validation: `services/ai/coach/schemas.py`, `patch_apply.py`
+- API mutation boundary: `api/services/coach_turn.py`, `coach_patch_ops.py`
+- Planning lifecycle: `api/services/plan_generation_lock.py`, `analysis_resume.py`, `worker/tasks.py`
+- Versioned React rendering: `web/app/src/components/plan-viewer/versioned/`

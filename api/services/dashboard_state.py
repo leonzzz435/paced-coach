@@ -6,10 +6,9 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.config import get_settings
 from api.models.athlete_profile import AthleteProfile
 from api.models.coach_proposal import CoachProposal
 from api.models.coach_thread import CoachThread
@@ -18,19 +17,11 @@ from api.models.daily_update_run import DailyUpdateRun
 from api.models.weekly_recap_run import WeeklyRecapRun
 from api.services.active_plans import get_active_analysis, get_active_season_plan, get_active_weekly_plan
 from api.services.athlete_time import get_athlete_time_context
-from api.services.connected_coaching import resolve_connected_coaching_gate
-from api.services.daily_sync_sources import extract_daily_sync_sources
-from api.services.daily_update_runs import fail_stale_pending_daily_update_run
-from api.services.full_run_policy import evaluate_weekly_recap_availability
 from api.services.html_sanitizer import sanitize_html
-from api.services.integration_status import load_integrations_status, training_provider_notice_message
 from api.services.local_readiness import format_llm_provider_key_names, has_llm_provider_key
-from api.services.local_usage import get_local_usage_context, has_weekly_recap_feature_access
 from api.services.recap import (
     extract_recap_action_preview,
     extract_recap_summary_preview,
-    get_recap_pending_action,
-    get_recap_thread_id,
 )
 from services.ai.langgraph.schemas.ui_blocks import UiDayPlan, UiDisclosureNode, UiHtmlBlock, UiKpi, UiWeeklyPlan
 
@@ -100,19 +91,19 @@ def _build_first_run_state(
     if has_active_plan:
         next_step = "generated"
         title = "Training plan ready"
-        body = "Your current plan is available locally. Connected sources can improve daily sync and recaps, but they are not required to view or discuss the plan."
+        body = "Your current plan is available locally and ready for plan-aware coach conversations."
         primary_action = {"label": "Open training plan", "href": "/app/plan"}
         secondary_actions = [{"label": "Ask coach", "href": "/app/coach"}]
     elif not llm_ready:
         next_step = "llm_key"
         title = "Add one LLM key"
-        body = "Manual Mode can run without Strava or WHOOP, but local plan generation still needs one supported LLM provider key."
+        body = "Provider-free planning needs no external training-data account, but local generation still needs one supported LLM provider key."
         primary_action = None
         secondary_actions = []
     elif not profile_ready:
         next_step = "profile"
         title = "Complete your athlete profile"
-        body = "Manual Mode uses your declared physiology, sports, availability, and constraints as the baseline planning evidence."
+        body = "Your declared physiology, sports, availability, and constraints are the baseline planning evidence."
         primary_action = {"label": "Complete profile", "href": "/app/profile"}
         secondary_actions = []
     elif not goal_ready:
@@ -124,7 +115,7 @@ def _build_first_run_state(
     else:
         next_step = "generate"
         title = "Generate your first local plan"
-        body = "Ready for Draft Mode: the planner will use your saved profile, goal/race context, and any notes you add on the generation screen."
+        body = "No wearable required: the planner will use your saved profile, goal/race context, availability, constraints, and generation notes."
         primary_action = {"label": "Generate plan", "href": "/app/new"}
         secondary_actions = [
             {"label": "Review profile", "href": "/app/profile"},
@@ -148,15 +139,6 @@ def _build_first_run_state(
         "secondary_actions": secondary_actions,
         "blockers": blockers,
     }
-
-
-async def _load_dashboard_integrations_context(db: AsyncSession, *, user_id):
-    integrations_status = await load_integrations_status(
-        db,
-        user_id=user_id,
-        settings=get_settings(),
-    )
-    return integrations_status, training_provider_notice_message(integrations_status)
 
 
 def _resolve_daily_sync_status(
@@ -615,23 +597,6 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
     weekly_payload = await get_active_weekly_plan(db, user_id=user_id)
     profile_row = await db.execute(select(AthleteProfile.profile).where(AthleteProfile.user_id == user_id))
     competitions_row = await db.execute(select(Competition.id).where(Competition.user_id == user_id))
-    daily_run_row = await db.execute(
-        select(DailyUpdateRun).where(
-            DailyUpdateRun.user_id == user_id,
-            DailyUpdateRun.target_date == today_local_date,
-        )
-    )
-    completed_daily_runs_row = await db.execute(
-        select(DailyUpdateRun)
-        .where(
-            DailyUpdateRun.user_id == user_id,
-            DailyUpdateRun.status.in_(("done", "completed")),
-        )
-        .order_by(desc(DailyUpdateRun.target_date), desc(DailyUpdateRun.updated_at))
-    )
-    recap_availability = await evaluate_weekly_recap_availability(db, user_id=user_id)
-    usage_context = await get_local_usage_context(db, user_id=user_id)
-    recap_feature_enabled = has_weekly_recap_feature_access(usage_context)
     pending_proposal_row = await db.execute(
         select(CoachProposal)
         .join(CoachThread, CoachProposal.thread_id == CoachThread.id)
@@ -648,49 +613,26 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
     profile_payload = profile_row.scalar_one_or_none()
     has_competitions = bool(competitions_row.scalars().first())
     warnings = _dashboard_warnings(profile=profile_payload, has_competitions=has_competitions)
-    integrations_status, provider_notice = await _load_dashboard_integrations_context(
-        db,
-        user_id=user_id,
+    weekly_plan_payload = weekly_payload["weekly_plan"] if weekly_payload else None
+    legacy_weekly_plan = (
+        UiWeeklyPlan.model_validate(weekly_plan_payload)
+        if isinstance(weekly_plan_payload, dict) and weekly_plan_payload.get("schema_version") == 1
+        else None
     )
-    if provider_notice and provider_notice not in warnings:
-        warnings.append(provider_notice)
-
-    weekly_plan_model = UiWeeklyPlan.model_validate(weekly_payload["weekly_plan"]) if weekly_payload else None
-
-    daily_run = daily_run_row.scalar_one_or_none()
-    completed_daily_runs = completed_daily_runs_row.scalars().all()
-    await fail_stale_pending_daily_update_run(db, run=daily_run, now=athlete_time.now_local)
-    daily_payload = daily_run.update_payload if daily_run and isinstance(daily_run.update_payload, dict) else {}
     status_surface = _build_status_surface(
         analysis_payload=analysis_payload,
-        today_daily_run=daily_run,
-        completed_daily_runs=completed_daily_runs,
-        daily_payload=daily_payload,
+        today_daily_run=None,
+        completed_daily_runs=[],
+        daily_payload={},
         today_local_iso=today_local_iso,
     )
     analysis_coach_surface, _ = _build_analysis_coach_surface(analysis_payload)
-    today_focus_blocks = _sanitize_focus_blocks(daily_payload.get("today_focus_blocks"))
-    daily_coach_surface, daily_surface_updated_at = _build_daily_coach_surface(
-        daily_run=daily_run,
-        today_focus_blocks=today_focus_blocks,
-    )
     day_override = compose_day_override(
-        weekly_plan=weekly_plan_model,
+        weekly_plan=legacy_weekly_plan,
         target_date_iso=today_local_iso,
-        today_focus_blocks=today_focus_blocks,
+        today_focus_blocks=[],
     )
-
-    daily_thread_id = await _get_daily_thread_id(db, run=daily_run)
-    daily_status, daily_visible, daily_error = _resolve_daily_sync_status(
-        daily_run=daily_run,
-        weekly_plan_available=weekly_plan_model is not None,
-    )
-    daily_gate = resolve_connected_coaching_gate(
-        feature_enabled=True,
-        integrations_status=integrations_status,
-        locked_message="Daily coaching requires a connected training or recovery source.",
-    )
-    has_connected_source = str(daily_gate.evidence_profile.get("connected_mode") or "none") != "none"
+    has_connected_source = False
     has_active_plan = season_payload is not None or weekly_payload is not None
     first_run_state = _build_first_run_state(
         profile=profile_payload,
@@ -698,27 +640,12 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
         has_active_plan=has_active_plan,
         has_connected_source=has_connected_source,
     )
-    daily_attention_message = _resolve_daily_sync_attention(provider_notice=daily_gate.attention_message)
-    daily_can_run = weekly_plan_model is not None and daily_gate.allowed
+    daily_attention_message = "Daily Sync is not included in the provider-free v2.2.0 release."
+    daily_can_run = False
 
-    verdict_preview = _extract_html_text(today_focus_blocks[0].content_html) if today_focus_blocks else None
-    prefetched_recovery_readiness = (
-        daily_run.context_snapshot.get("prefetched_recovery_readiness")
-        if daily_run is not None and isinstance(daily_run.context_snapshot, dict)
-        else None
-    )
-    sources_used = extract_daily_sync_sources(prefetched_recovery_readiness)
-
-    recap_gate = resolve_connected_coaching_gate(
-        feature_enabled=True,
-        integrations_status=integrations_status,
-        locked_message="Weekly recap requires a connected training or recovery source.",
-    )
-    recap_attention_message = recap_gate.attention_message
-    recap_gate_target = recap_gate.gate_target
     recap_state = {
         "visible": False,
-        "allowed": recap_availability.allowed and recap_feature_enabled,
+        "allowed": False,
         "status": "hidden",
         "thread_id": None,
         "proposal_id": None,
@@ -726,57 +653,16 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
         "summary_preview": None,
         "pending_action": "none",
         "can_run": False,
-        "attention_message": recap_attention_message,
-        "gate_target": recap_gate_target,
+        "attention_message": "Weekly Recap is not included in the provider-free v2.2.0 release.",
+        "gate_target": None,
     }
-    recap_coach_surface: dict[str, Any] | None = None
-    recap_surface_updated_at: datetime | None = None
-
-    if recap_availability.allowed and recap_feature_enabled:
-        recap_state.update(
-            {
-                "visible": True,
-                "allowed": True,
-                "status": "ready",
-                "can_run": recap_gate.allowed,
-                "attention_message": recap_attention_message,
-                "gate_target": recap_gate_target,
-            }
-        )
-    elif recap_availability.existing_run_id is not None:
-        recap_run_row = await db.execute(
-            select(WeeklyRecapRun).where(
-                WeeklyRecapRun.id == recap_availability.existing_run_id,
-                WeeklyRecapRun.user_id == user_id,
-            )
-        )
-        recap_run = recap_run_row.scalar_one_or_none()
-        if recap_run is not None:
-            recap_thread_id = await get_recap_thread_id(db, run=recap_run)
-            pending_action = await get_recap_pending_action(db, run=recap_run)
-            recap_coach_surface, recap_surface_updated_at = _build_weekly_recap_coach_surface(recap_run)
-            recap_state.update(
-                {
-                    "visible": True,
-                    "allowed": False,
-                    "status": "completed_this_window",
-                    "thread_id": recap_thread_id,
-                    "proposal_id": str(recap_run.proposal_id) if recap_run.proposal_id else None,
-                    "follow_up_question": recap_run.follow_up_question,
-                    "summary_preview": extract_recap_summary_preview(recap_run.recap_payload),
-                    "pending_action": pending_action,
-                    "can_run": False,
-                    "attention_message": recap_attention_message,
-                    "gate_target": recap_gate_target,
-                }
-            )
 
     pending_proposal = pending_proposal_row.scalar_one_or_none()
     coach_surface = _select_coach_surface(
-        daily_surface=daily_coach_surface,
-        daily_updated_at=daily_surface_updated_at,
-        recap_surface=recap_coach_surface,
-        recap_updated_at=recap_surface_updated_at,
+        daily_surface=None,
+        daily_updated_at=None,
+        recap_surface=None,
+        recap_updated_at=None,
         analysis_surface=analysis_coach_surface,
     )
 
@@ -798,17 +684,17 @@ async def build_dashboard_state(db: AsyncSession, *, user_id) -> dict[str, Any]:
             "day_override": day_override.model_dump(mode="json") if day_override is not None else None,
         },
         "daily_sync": {
-            "visible": daily_visible,
-            "status": daily_status,
-            "run_id": str(daily_run.id) if daily_run is not None else None,
-            "verdict_preview": verdict_preview,
-            "sources_used": sources_used,
-            "proposal_id": str(daily_run.proposal_id) if daily_run and daily_run.proposal_id else None,
-            "thread_id": daily_thread_id,
-            "error_message": daily_error,
+            "visible": False,
+            "status": "idle",
+            "run_id": None,
+            "verdict_preview": None,
+            "sources_used": [],
+            "proposal_id": None,
+            "thread_id": None,
+            "error_message": None,
             "can_run": daily_can_run,
             "attention_message": daily_attention_message,
-            "gate_target": daily_gate.gate_target,
+            "gate_target": None,
         },
         "weekly_recap": recap_state,
         "pending_proposal_banner": (

@@ -55,17 +55,17 @@ Run this from the repository root. It wraps `pixi run dev-all`.
 
 - `/` local app entry
 - `/app` dashboard
-- `/app/settings` local readiness plus Strava / WHOOP connector status
+- `/app/settings` provider-free runtime status plus protected local reset
 - `/app/competitions` competitions editor
 - `/app/new` plan generation
 - `/app/plan` active plan viewer
 - `/app/coach` coach chat
 - `/delete`, `/privacy`, `/terms`, `/support`, `/impressum` local-first public/legal pages
 
-### Connected Mode
+### Provider-Free Runtime
 
-Strava and WHOOP are optional data connectors, not login providers. Configure their OAuth values in the root `.env`
-only if you want connected daily sync and weekly recap.
+External training-data connectors are not part of v2.2.0. The app coaches from profile, goals, races, constraints,
+plans, and coach history.
 
 ## Learn More
 

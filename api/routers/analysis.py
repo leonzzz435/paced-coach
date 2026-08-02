@@ -13,12 +13,15 @@ from api.deps import get_current_user, get_db
 from api.models.athlete_profile import AthleteProfile
 from api.models.competition import Competition
 from api.models.job import AnalysisJob, JobStatus
+from api.services.analysis_attempts import get_attempt_started_at
+from api.services.analysis_resume import hash_resume_answer, resume_request_matches
 from api.services.local_readiness import format_llm_provider_key_names, has_llm_provider_key
 from api.services.local_usage import ensure_plan_generation_available, release_initial_draft_plan_claim
+from api.services.plan_generation_lock import lock_owner_plan_generation
 from api.services.status_messages import (
     complete_active_analysis_progress_steps,
     current_analysis_step,
-    initial_analysis_progress_steps,
+    initial_head_coach_progress_steps,
     normalize_analysis_progress_steps,
 )
 from core.task_timeouts import (
@@ -89,6 +92,19 @@ class AnalysisJobResponse(BaseModel):
     tokens_used: int | None = None
     progress_steps: list[ProgressStepResponse] | None = None
     current_step: str | None = None
+    interrupt: dict[str, Any] | None = None
+
+
+class ResumeAnalysisRequest(BaseModel):
+    answer: str = Field(min_length=1, max_length=4_000)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+    @field_validator("answer", "idempotency_key", mode="before")
+    @classmethod
+    def normalize_required_strings(cls, value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Value must be a non-empty string")
+        return value.strip()
 
 
 class AnalysisResultResponse(BaseModel):
@@ -113,13 +129,14 @@ async def run_analysis(
             ),
         )
 
+    await lock_owner_plan_generation(db, user_id=user_id)
     plan_generation_access = await ensure_plan_generation_available(db, user_id=user_id)
     try:
         # Create job
         job = AnalysisJob(
             user_id=user_id,
             config=config.model_dump(mode="json"),
-            progress_steps=initial_analysis_progress_steps(),
+            progress_steps=initial_head_coach_progress_steps(),
         )
         db.add(job)
         await db.flush()
@@ -129,6 +146,7 @@ async def run_analysis(
         job_config = {
             **job.config,
             "_plan_generation_access_mode": plan_generation_access.mode,
+            "_workflow_version": "head_coach_v1",
         }
 
         profile_result = await db.execute(select(AthleteProfile).where(AthleteProfile.user_id == user_id))
@@ -187,6 +205,7 @@ async def run_analysis(
         created_at=job.created_at,
         progress_steps=[ProgressStepResponse.model_validate(step) for step in (job.progress_steps or [])],
         current_step=current_analysis_step(job.progress_steps),
+        interrupt=None,
     )
 
 
@@ -212,7 +231,8 @@ async def get_job_status(
     # an analysis task time limit is explicitly configured.
     if job.status == JobStatus.RUNNING.value:
         now = datetime.now(UTC)
-        age_seconds = (now - job.created_at).total_seconds()
+        attempt_started_at = get_attempt_started_at(getattr(job, "config", None), fallback=job.created_at)
+        age_seconds = (now - attempt_started_at).total_seconds()
         stale_threshold_seconds = get_analysis_running_job_max_age_seconds()
         if stale_threshold_seconds is not None and age_seconds > stale_threshold_seconds:
             task_limit_seconds = get_analysis_task_time_limit_seconds()
@@ -239,6 +259,83 @@ async def get_job_status(
             ProgressStepResponse.model_validate(step) for step in normalize_analysis_progress_steps(job_progress_steps)
         ],
         current_step=current_analysis_step(job_progress_steps),
+        interrupt=(getattr(job, "config", None) or {}).get("_head_coach_interrupt"),
+    )
+
+
+@router.post("/{job_id}/resume", status_code=202)
+async def resume_analysis(
+    job_id: uuid.UUID,
+    request: ResumeAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_current_user),
+) -> AnalysisJobResponse:
+    row = await db.execute(
+        select(AnalysisJob)
+        .where(AnalysisJob.id == job_id, AnalysisJob.user_id == user_id)
+        .with_for_update()
+    )
+    job = row.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    config = dict(job.config or {})
+    previous_resume = config.get("_head_coach_resume")
+    if isinstance(previous_resume, dict) and previous_resume.get("idempotency_key") == request.idempotency_key:
+        if not resume_request_matches(
+            previous_resume,
+            idempotency_key=request.idempotency_key,
+            answer=request.answer,
+        ):
+            raise HTTPException(status_code=409, detail="Idempotency key was already used with a different answer")
+        return AnalysisJobResponse(
+            job_id=str(job.id),
+            status=job.status,
+            created_at=job.created_at,
+            completed_at=job.completed_at,
+            progress_steps=[ProgressStepResponse.model_validate(step) for step in (job.progress_steps or [])],
+            current_step=current_analysis_step(job.progress_steps),
+            interrupt=config.get("_head_coach_interrupt"),
+        )
+    if job.status != JobStatus.AWAITING_INPUT.value:
+        raise HTTPException(status_code=409, detail="Job is not awaiting input")
+    if not isinstance(config.get("_head_coach_interrupt"), dict):
+        raise HTTPException(status_code=409, detail="Job has no resumable clarification")
+
+    config["_head_coach_resume"] = {
+        "answer": request.answer,
+        "answer_hash": hash_resume_answer(request.answer),
+        "idempotency_key": request.idempotency_key,
+    }
+    config.pop("_celery_task_id", None)
+    job.config = config
+    job.status = JobStatus.PENDING.value
+    db.add(job)
+    await db.commit()
+
+    try:
+        from worker.tasks import run_analysis_task
+
+        run_analysis_task.delay(str(job.id))
+    except Exception as exc:
+        logger.exception("Failed to enqueue resumed analysis job %s", job.id)
+        job.status = JobStatus.AWAITING_INPUT.value
+        job.config = {
+            key: value
+            for key, value in config.items()
+            if key != "_head_coach_resume"
+        }
+        db.add(job)
+        await db.commit()
+        raise HTTPException(status_code=503, detail="Unable to resume analysis job") from exc
+
+    return AnalysisJobResponse(
+        job_id=str(job.id),
+        status=job.status,
+        created_at=job.created_at,
+        progress_steps=[ProgressStepResponse.model_validate(step) for step in (job.progress_steps or [])],
+        current_step=current_analysis_step(job.progress_steps),
+        interrupt=config.get("_head_coach_interrupt"),
     )
 
 
@@ -263,6 +360,9 @@ async def get_job_results(
 
     if job.status == JobStatus.RUNNING.value:
         raise HTTPException(status_code=400, detail="Job is still running")
+
+    if job.status == JobStatus.AWAITING_INPUT.value:
+        raise HTTPException(status_code=400, detail="Job is awaiting input")
 
     if job.status == JobStatus.CANCELLED.value:
         raise HTTPException(status_code=400, detail="Job was cancelled")

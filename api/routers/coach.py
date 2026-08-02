@@ -16,7 +16,7 @@ from api.services.coach_turn import archive_coach_thread_v2, get_coach_thread_v2
 
 router = APIRouter()
 _COACH_TURN_STREAM_HEARTBEAT_SECONDS = 5.0
-_COACH_TURN_STREAM_TIMEOUT_SECONDS: float | None = None
+_COACH_TURN_STREAM_TIMEOUT_SECONDS = 600.0
 
 
 class CoachTurnUiContext(BaseModel):
@@ -30,7 +30,7 @@ class CoachTurnUiContext(BaseModel):
 
 class CoachTurnRequest(BaseModel):
     thread_id: uuid.UUID | None = None
-    action: str = Field(..., pattern="^(text|proposal_accept|proposal_reject|recap)$")
+    action: str = Field(..., pattern="^(text|proposal_accept|proposal_reject)$")
     message: str | None = Field(default=None, min_length=1, max_length=2000)
     proposal_id: uuid.UUID | None = None
     reason: str | None = Field(default=None, min_length=1, max_length=500)
@@ -170,6 +170,7 @@ async def _stream_turn_events(
             now = monotonic()
             if _stream_timeout_reached(now=now, stream_started_at=stream_started_at):
                 yield await _stream_timeout_error(db, turn_task)
+                yield _sse_event("done")
                 return
 
             event, last_status_emit_at = await _next_status_or_heartbeat_event(
@@ -190,7 +191,11 @@ async def _stream_turn_events(
     except Exception as exc:
         yield await _stream_failure_error(db, turn_task, exc)
     finally:
-        yield _sse_event("done")
+        await _cancel_turn_task(turn_task)
+        if turn_task.cancelled() and not db.info.get(DB_SKIP_AUTO_COMMIT_FLAG):
+            await db.rollback()
+            _disable_auto_commit(db)
+    yield _sse_event("done")
 
 
 @router.post("/turn")
@@ -200,7 +205,7 @@ async def post_turn(
     db: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(get_current_user),
 ):
-    if payload.action not in ("text", "recap") or not _wants_sse_response(request):
+    if payload.action != "text" or not _wants_sse_response(request):
         return await _post_coach_turn_payload(payload=payload, db=db, user_id=user_id)
 
     return StreamingResponse(

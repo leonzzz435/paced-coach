@@ -4,25 +4,31 @@ import Link from "next/link";
 import DashboardClient from "@/components/dashboard/dashboard-client";
 import PlanViewer from "@/components/plan-viewer/plan-viewer";
 import { DEFAULT_DEMO_PERSONA } from "@/lib/demo/demo-data";
+import { DEMO_SEASON_PLAN_BY_PERSONA } from "@/lib/demo/fixtures/v3/season";
+import { DEMO_WEEKLY_PLAN_BY_PERSONA } from "@/lib/demo/fixtures/v3/weekly";
+import { DEFAULT_DEMO_PERSONA_ID } from "@/lib/demo/personas";
 import { buildPublicMetadata } from "@/lib/public-metadata";
 import type { DashboardStateResponse } from "@/lib/types/dashboard";
 
 export const metadata = buildPublicMetadata({
-  title: "paced.coach demo - local-first AI endurance coach",
-  description: "A sanitized preview of the paced.coach dashboard, season roadmap, training plan, and coach workspace.",
+  title: "paced.coach demo - no wearable required",
+  description:
+    "See how your goals, availability, and constraints become a season roadmap, 28-day plan, and coach chat with your own LLM key. No wearable required.",
   path: "/demo",
 });
 
-const DEMO_NOW_ISO = "2026-03-07T07:45:00.000Z";
+const DEMO_NOW_ISO = "2026-08-04T07:45:00.000Z";
+const DEMO_SEASON_PLAN = DEMO_SEASON_PLAN_BY_PERSONA[DEFAULT_DEMO_PERSONA_ID];
+const DEMO_WEEKLY_PLAN = DEMO_WEEKLY_PLAN_BY_PERSONA[DEFAULT_DEMO_PERSONA_ID];
 
 function demoDashboardState(): DashboardStateResponse {
-  const todayOverride = DEFAULT_DEMO_PERSONA.weekly.weeks[0]?.days[1] ?? null;
+  const today = DEMO_WEEKLY_PLAN.weeks[0]?.days[1] ?? null;
 
   return {
     athlete_time: {
       timezone: "Europe/Berlin",
       timezone_source: "profile",
-      today_local_date: todayOverride?.date ?? "2026-03-07",
+      today_local_date: today?.date ?? "2026-08-04",
       now_local_iso: DEMO_NOW_ISO,
     },
     analysis: {
@@ -32,30 +38,31 @@ function demoDashboardState(): DashboardStateResponse {
       source_job_id: "demo-analysis-job",
     },
     status_surface: {
-      kpis: DEFAULT_DEMO_PERSONA.analysis.dashboard_kpis ?? DEFAULT_DEMO_PERSONA.analysis.kpis.slice(0, 6),
-      source: "analysis",
-      label: "Demo baseline analysis",
+      kpis: [],
+      source: "none",
+      label: null,
       updated_at: DEMO_NOW_ISO,
-      target_date: todayOverride?.date ?? "2026-03-07",
+      target_date: today?.date ?? "2026-08-04",
     },
     coach_surface: {
       source: "analysis",
       scope: "training_block",
       primary_label: "Coach priority",
-      primary_text: DEFAULT_DEMO_PERSONA.analysis.coach_action ?? null,
+      primary_text:
+        "Keep Saturday's long run easy and fueled. It anchors this block without requiring pace, heart-rate, or readiness targets.",
       secondary_text:
-        "The agent keeps load progression explicit, marks recovery gates, and avoids claiming connected readiness signals unless Strava or WHOOP is configured.",
+        "The agent reasons from the active plan and declared constraints, marks adaptation gates, and makes uncertainty explicit.",
       updated_at: DEMO_NOW_ISO,
     },
     season: {
-      season_plan: DEFAULT_DEMO_PERSONA.season,
-      version: DEFAULT_DEMO_PERSONA.season.version,
+      season_plan: DEMO_SEASON_PLAN,
+      version: DEMO_SEASON_PLAN.version,
       updated_at: DEMO_NOW_ISO,
       source_job_id: "demo-season-job",
     },
     weekly: {
-      weekly_plan: DEFAULT_DEMO_PERSONA.weekly,
-      version: DEFAULT_DEMO_PERSONA.weekly.version,
+      weekly_plan: DEMO_WEEKLY_PLAN,
+      version: DEMO_WEEKLY_PLAN.version,
       updated_at: DEMO_NOW_ISO,
       source_job_id: "demo-weekly-job",
     },
@@ -71,7 +78,7 @@ function demoDashboardState(): DashboardStateResponse {
       has_connected_source: false,
       next_step: "generated",
       title: "Your first local plan is ready",
-      body: "This demo uses declared profile, goals, constraints, and sanitized fixture output. Connected data is optional.",
+      body: "This demo uses declared profile, goals, constraints, and sanitized fixture output. No external training-data provider is involved.",
       primary_action: { label: "View plan", href: "#plan" },
       secondary_actions: [{ label: "Ask coach", href: "#coach" }],
       blockers: [],
@@ -79,17 +86,16 @@ function demoDashboardState(): DashboardStateResponse {
     today_mission: {
       warnings: [
         "Demo mode: this is fixture data, not live medical or training advice.",
-        "Connected readiness, HRV, sleep, and compliance claims stay optional until a user configures providers.",
+        "No device-derived readiness, sleep, or compliance signal is assumed; describe anything relevant in your own words.",
       ],
-      day_override: todayOverride,
+      day_override: null,
     },
     daily_sync: {
-      visible: true,
-      status: "completed",
-      run_id: "demo-daily-sync",
-      verdict_preview:
-        "Keep the session aerobic unless sleep debt or soreness is present. If recovery feels below baseline, cut the final block and keep the skill work.",
-      sources_used: ["strava", "whoop"],
+      visible: false,
+      status: "idle",
+      run_id: null,
+      verdict_preview: null,
+      sources_used: [],
       proposal_id: null,
       thread_id: "demo-thread",
       error_message: null,
@@ -98,15 +104,14 @@ function demoDashboardState(): DashboardStateResponse {
       gate_target: null,
     },
     weekly_recap: {
-      visible: true,
+      visible: false,
       allowed: false,
       status: "completed_this_window",
-      thread_id: "demo-thread",
+      thread_id: null,
       proposal_id: null,
-      follow_up_question: "Do you want the next week biased toward trail durability or 10k sharpening?",
-      summary_preview:
-        "Load rebuilt conservatively after the reset while threshold markers stayed intact. The next block protects sleep and adds race-specific work only when recovery gates pass.",
-      pending_action: "follow_up",
+      follow_up_question: null,
+      summary_preview: null,
+      pending_action: "none",
       can_run: false,
       attention_message: null,
       gate_target: null,
@@ -128,21 +133,25 @@ function DemoShell({ children }: { children: React.ReactNode }) {
 function DemoHero() {
   return (
     <section
-      className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),rgba(255,255,255,0.035))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.34)] sm:p-8 lg:p-10"
+      className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),rgba(255,255,255,0.035))] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.34)] sm:p-8 lg:p-10"
       data-screenshot="hero"
     >
       <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-emerald-200/50 to-transparent" />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(460px,0.9fr)] lg:items-center">
         <div>
           <div className="inline-flex rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-100">
-            Local-first AI endurance coach
+            No wearable required
           </div>
-          <h1 className="mt-6 max-w-4xl text-5xl font-black tracking-[-0.06em] text-white sm:text-6xl lg:text-7xl">
-            A real training system, not a paywalled dashboard.
+          <h1 className="mt-5 max-w-4xl text-4xl font-black tracking-[-0.06em] text-white sm:mt-6 sm:text-6xl lg:text-7xl">
+            Your season. Your next 28 days. One coach that knows the plan.
           </h1>
-          <p className="mt-5 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
-            paced.coach runs on your machine, generates season roadmaps and 28-day execution blocks, and can use
-            optional Strava/WHOOP OAuth when you want connected daily sync and weekly recaps.
+          <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-lg sm:leading-8">
+            Start with your goals, training history, availability, and constraints. Bring one supported LLM key.
+            paced.coach builds the season roadmap, the execution calendar, and the coach conversation from that
+            declared context.
+          </p>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400">
+            Runs locally. Version 2.2.0 is provider-free: athlete-declared context is the product, not a fallback.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link
@@ -163,10 +172,10 @@ function DemoHero() {
         <div className="rounded-[2rem] border border-white/10 bg-slate-950/55 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur">
           <div className="grid gap-3 sm:grid-cols-2">
             {[
-              ["Season roadmap", "11 phases", "Macro plan from March to October"],
-              ["Execution block", "28 days", "Day-level sessions with readiness gates"],
-              ["Coach workspace", "Context-aware", "Questions, recaps, and plan patches"],
-              ["Data posture", "Local-first", "No hosted auth or payments required"],
+              ["Athlete context", "You define it", "Goals, history, availability, and constraints"],
+              ["Season roadmap", "3 phases", "Macro plan from August to November"],
+              ["Execution block", "28 days", "Day-level sessions and adaptation gates"],
+              ["Coach workspace", "Plan-aware", "Questions, reflections, and proposed changes"],
             ].map(([label, value, body]) => (
               <div className="rounded-3xl border border-white/10 bg-white/[0.045] p-5" key={label}>
                 <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">{label}</div>
@@ -225,7 +234,7 @@ function CoachPreview() {
       <SectionHeader
         eyebrow="Coach workspace"
         title="Ask questions against the actual plan context."
-        body="The public demo keeps the chat static, but the local app uses saved profile, plan, competitions, recaps, and optional provider data when generating responses."
+        body="The public demo keeps the chat static, but the local app uses your saved profile, active plan, competitions, and athlete messages when generating responses."
       />
       <div className="mx-auto mt-8 grid max-w-5xl gap-4">
         {messages.map((message, index) => (
@@ -251,8 +260,8 @@ function DashboardPreview({ dashboardState }: { dashboardState: DashboardStateRe
     <section data-screenshot="dashboard" id="dashboard">
       <SectionHeader
         eyebrow="Training cockpit"
-        title="Daily focus, recovery gates, recaps, and plan status in one place."
-        body="The dashboard preview uses sanitized fixtures and mirrors the local app shell without touching your database."
+        title="See the whole plan — and know what matters today."
+        body="Declared athlete context is the product: goals, history, availability, constraints, and the active plan. This preview uses sanitized fixtures and never touches your database."
       />
       <div className="mt-8 rounded-[2rem] border border-white/10 bg-[#0b0f19]/80 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.36)] sm:p-6">
         <DashboardClient initialState={dashboardState} />
@@ -281,8 +290,8 @@ function PlanPreview() {
             analysis={DEFAULT_DEMO_PERSONA.analysis}
             nowIso={DEMO_NOW_ISO}
             publicPreview
-            seasonPlan={DEFAULT_DEMO_PERSONA.season}
-            weeklyPlan={DEFAULT_DEMO_PERSONA.weekly}
+            seasonPlan={DEMO_SEASON_PLAN}
+            weeklyPlan={DEMO_WEEKLY_PLAN}
           />
         </Suspense>
       </div>

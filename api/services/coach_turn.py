@@ -42,25 +42,27 @@ from api.services.coach_event_store import (
     hydrate_recap_messages_by_thread,
     list_coach_threads,
     resolve_coach_chat_gate_state,
-    resolve_recap_gate_state,
     serialize_thread_event,
 )
 from api.services.coach_memory import maybe_update_thread_memory
-from api.services.coach_patch_ops import apply_ops, parse_patch_ops, sanitize_ops
+from api.services.coach_patch_ops import (
+    apply_ops,
+    parse_patch_ops,
+    parse_weekly_plan,
+    prepare_ops_for_plan,
+    sanitize_ops,
+)
 from api.services.coach_quota import (
     consume_coach_weekly_quota,
     ensure_coach_weekly_quota_available,
     get_coach_weekly_quota,
 )
 from api.services.coach_thread_titles import generate_thread_title_from_exchange
-from api.services.full_run_policy import evaluate_full_run_availability, evaluate_weekly_recap_availability
-from api.services.integration_status import load_integrations_status
-from api.services.local_usage import consume_adaptive_update, get_local_usage_context, has_weekly_recap_feature_access
+from api.services.local_usage import consume_adaptive_update, get_local_usage_context
 from api.services.ongoing_tools import build_ongoing_tool_registry
-from api.services.recap import execute_recap_turn
 from core.recap_schedule import compute_recap_week_anchor_utc
 from services.ai.coach.continuum_turn_agent import run_continuum_coach_turn
-from services.ai.langgraph.schemas.ui_blocks import UiWeeklyPlan
+from services.ai.head_coach.artifacts import ExecutionPlanArtifactV3
 
 _SAFETY_KEYWORDS = ("injury", "injured", "pain", "sick", "ill", "medication")
 _MEDICAL_DISCLAIMER = (
@@ -163,6 +165,26 @@ def _serialize_validated_ui_day_context(*, week, day) -> dict[str, object]:
     }
 
 
+def _serialize_v3_day_context(*, week, day) -> dict[str, object]:
+    return {
+        "source": "today_mission",
+        "day": {
+            "day_id": day.day_id,
+            "date": day.date.isoformat(),
+            "day_label": day.label,
+            "workout_title": day.sessions[0].title if day.sessions else None,
+            "focus_type": day.focus_type,
+            "estimated_duration_min": day.total_duration_min,
+            "estimated_intensity": day.intensity,
+            "readiness_note": None,
+            "is_completed": day.is_completed,
+            "week_id": week.week_id,
+            "week_label": week.title,
+            "week_theme": week.intent_markdown,
+        },
+    }
+
+
 async def _resolve_turn_ui_context(
     db: AsyncSession,
     *,
@@ -185,7 +207,7 @@ async def _resolve_turn_ui_context(
     if active_weekly is None:
         return None
 
-    weekly_plan = UiWeeklyPlan.model_validate(active_weekly.plan_data)
+    weekly_plan = parse_weekly_plan(active_weekly.plan_data)
     for week in weekly_plan.weeks:
         for day in week.days:
             if day.day_id != day_id:
@@ -194,6 +216,8 @@ async def _resolve_turn_ui_context(
                 return None
             if requested_date and requested_date != day.date.isoformat():
                 return None
+            if isinstance(weekly_plan, ExecutionPlanArtifactV3):
+                return _serialize_v3_day_context(week=week, day=day)
             return _serialize_validated_ui_day_context(week=week, day=day)
     return None
 
@@ -520,15 +544,6 @@ def _serialize_turn_run(turn_run: CoachTurnRun) -> dict[str, object]:
     }
 
 
-async def _can_request_full_run(db: AsyncSession, *, user_id: uuid.UUID) -> bool:
-    availability = await evaluate_full_run_availability(db, user_id=user_id)
-    return availability.allowed
-
-
-async def _ensure_connected_coach_chat_available(db: AsyncSession, *, user_id: uuid.UUID):
-    return None
-
-
 async def _projection_payload(
     db: AsyncSession,
     *,
@@ -546,9 +561,6 @@ async def _projection_payload(
         "coach_gate_message": projection["coach_gate_message"],
         "coach_gate_target": projection["coach_gate_target"],
         "has_pending_proposal": projection["has_pending_proposal"],
-        "can_trigger_recap": projection["can_trigger_recap"],
-        "training_provider_message": projection["training_provider_message"],
-        "recap_gate_target": projection["recap_gate_target"],
         "pending_proposal_ids": projection["pending_proposal_ids"],
         "next_after_seq": projection["next_after_seq"],
     }
@@ -572,7 +584,7 @@ async def _resolve_thread_for_turn(
             thread_id=thread_id,
         )
 
-    if action in ("text", "recap"):
+    if action == "text":
         return await get_or_create_coach_thread(db, user_id=user_id)
 
     if proposal_id is not None:
@@ -641,7 +653,7 @@ async def _handle_text_turn(
 
     validated_ui_context = await _resolve_turn_ui_context(db, user_id=user_id, ui_context=ui_context)
 
-    async with build_ongoing_tool_registry(db, user_id=user_id, require_training_provider=False) as tool_registry:
+    async with build_ongoing_tool_registry(db, user_id=user_id) as tool_registry:
         context_pack = await build_turn_context(
             db,
             user_id=user_id,
@@ -682,7 +694,7 @@ async def _handle_text_turn(
     )
     full_run_reason = model_output.full_run_reason.strip() if model_output.full_run_reason else None
 
-    ops = sanitize_ops(model_output.proposal_ops)
+    ops = model_output.proposal_ops
     turn_payload: dict = {
         "kind": "message",
         "assistant_message": assistant_message,
@@ -698,14 +710,15 @@ async def _handle_text_turn(
 
     if ops:
         active_weekly = await _get_active_weekly_plan(db, user_id=user_id)
-        weekly_plan = UiWeeklyPlan.model_validate(active_weekly.plan_data)
-        preview_plan, proposal_changed = apply_ops(weekly_plan, ops)
+        weekly_plan = parse_weekly_plan(active_weekly.plan_data)
+        prepared_ops = prepare_ops_for_plan(weekly_plan, ops)
+        preview_plan, proposal_changed = apply_ops(weekly_plan, prepared_ops)
         proposal = CoachProposal(
             user_id=user_id,
             thread_id=thread.id,
             weekly_plan_version=active_weekly.version,
             assistant_message=assistant_message,
-            ops={"ops": [item.model_dump(mode="json") for item in ops]},
+            ops={"ops": [item.model_dump(mode="json") for item in prepared_ops]},
             origin="coach_turn",
             status="pending",
         )
@@ -722,7 +735,7 @@ async def _handle_text_turn(
                     {
                         "proposal_id": str(proposal.id),
                         "assistant_message": assistant_message,
-                        "ops": [item.model_dump(mode="json") for item in ops],
+                        "ops": [item.model_dump(mode="json") for item in prepared_ops],
                         "base_weekly_plan": weekly_plan.model_dump(mode="json"),
                         "preview_weekly_plan": preview_plan.model_dump(mode="json"),
                         "origin": proposal.origin,
@@ -741,7 +754,7 @@ async def _handle_text_turn(
             "changed": proposal_changed,
             "base_weekly_plan": weekly_plan.model_dump(mode="json"),
             "preview_weekly_plan": preview_plan.model_dump(mode="json"),
-            "ops": [item.model_dump(mode="json") for item in ops],
+            "ops": [item.model_dump(mode="json") for item in prepared_ops],
             "requests_full_run": model_output.requests_full_run,
             "full_run_reason": full_run_reason,
             "safety_flags": model_output.safety_flags,
@@ -754,7 +767,7 @@ async def _handle_text_turn(
         )
         created_events.extend(coach_events)
 
-    if model_output.requests_full_run and await _can_request_full_run(db, user_id=user_id):
+    if model_output.requests_full_run:
         if full_run_reason:
             full_run_events = await append_coach_events(
                 db,
@@ -823,10 +836,12 @@ async def _handle_accept_turn(
     if active_weekly.version != proposal.weekly_plan_version:
         raise HTTPException(status_code=409, detail="Weekly plan changed since proposal")
 
-    weekly_plan = UiWeeklyPlan.model_validate(active_weekly.plan_data)
+    weekly_plan = parse_weekly_plan(active_weekly.plan_data)
     raw_ops = proposal.ops.get("ops", []) if isinstance(proposal.ops, dict) else []
-    parsed_ops = sanitize_ops(parse_patch_ops(raw_ops))
-    updated_plan, changed = apply_ops(weekly_plan, parsed_ops)
+    if isinstance(weekly_plan, ExecutionPlanArtifactV3):
+        updated_plan, changed = apply_ops(weekly_plan, parse_patch_ops(raw_ops, schema_version=3))
+    else:
+        updated_plan, changed = apply_ops(weekly_plan, sanitize_ops(parse_patch_ops(raw_ops)))
     updated_payload = updated_plan.model_dump(mode="json")
     adaptive_usage = None
     if changed:
@@ -925,7 +940,6 @@ async def _run_turn_action(
     status_emitter: StatusEmitter | None = None,
 ) -> tuple[dict, list]:
     if action == "text":
-        await _ensure_connected_coach_chat_available(db, user_id=user_id)
         return await _handle_text_turn(
             db,
             user_id=user_id,
@@ -954,14 +968,7 @@ async def _run_turn_action(
             proposal_id=proposal_id,
             reason=reason or "",
         )
-    if action == "recap":
-        return await execute_recap_turn(
-            db,
-            user_id=user_id,
-            thread=thread,
-            status_emitter=status_emitter,
-        )
-    raise HTTPException(status_code=400, detail="action must be text, proposal_accept, proposal_reject, or recap")
+    raise HTTPException(status_code=400, detail="action must be text, proposal_accept, or proposal_reject")
 
 
 async def post_coach_turn(
@@ -1020,7 +1027,7 @@ async def post_coach_turn(
             reason=reason,
             quota_source_id=f"{user_id}:{key}",
             ui_context=ui_context,
-            status_emitter=status_emitter if action in ("text", "recap") else None,
+            status_emitter=status_emitter if action == "text" else None,
         )
         if should_set_title_from_first_exchange:
             await _maybe_set_thread_title_from_first_exchange(
@@ -1038,9 +1045,6 @@ async def post_coach_turn(
             "coach_gate_message": projection["coach_gate_message"],
             "coach_gate_target": projection["coach_gate_target"],
             "has_pending_proposal": projection["has_pending_proposal"],
-            "can_trigger_recap": projection["can_trigger_recap"],
-            "training_provider_message": projection["training_provider_message"],
-            "recap_gate_target": projection["recap_gate_target"],
             "pending_proposal_ids": projection["pending_proposal_ids"],
             "next_after_seq": projection["next_after_seq"],
         }
@@ -1081,16 +1085,8 @@ async def get_coach_thread_v2(
         if thread is None:
             anchor = compute_recap_week_anchor_utc()
             quota = await get_coach_weekly_quota(db, user_id=user_id, week_anchor_utc=anchor)
-            recap_availability = await evaluate_weekly_recap_availability(db, user_id=user_id)
-            usage_context = await get_local_usage_context(db, user_id=user_id)
-            integrations_status = await load_integrations_status(db, user_id=user_id)
             can_send_message, coach_gate_message, coach_gate_target = resolve_coach_chat_gate_state(
                 quota=quota,
-            )
-            can_trigger_recap, training_provider_message, recap_gate_target = resolve_recap_gate_state(
-                recap_feature_enabled=has_weekly_recap_feature_access(usage_context),
-                recap_window_open=recap_availability.allowed,
-                integrations_status=integrations_status,
             )
             return {
                 "thread": None,
@@ -1100,9 +1096,6 @@ async def get_coach_thread_v2(
                 "coach_gate_message": coach_gate_message,
                 "coach_gate_target": coach_gate_target,
                 "has_pending_proposal": False,
-                "can_trigger_recap": can_trigger_recap,
-                "training_provider_message": training_provider_message,
-                "recap_gate_target": recap_gate_target,
                 "pending_proposal_ids": [],
                 "next_after_seq": after_seq,
                 "week_anchor_utc": anchor.astimezone(UTC).isoformat(),
@@ -1121,9 +1114,6 @@ async def get_coach_thread_v2(
         "coach_gate_message": projection["coach_gate_message"],
         "coach_gate_target": projection["coach_gate_target"],
         "has_pending_proposal": projection["has_pending_proposal"],
-        "can_trigger_recap": projection["can_trigger_recap"],
-        "training_provider_message": projection["training_provider_message"],
-        "recap_gate_target": projection["recap_gate_target"],
         "pending_proposal_ids": projection["pending_proposal_ids"],
         "next_after_seq": projection["next_after_seq"],
         "week_anchor_utc": compute_recap_week_anchor_utc().astimezone(UTC).isoformat(),

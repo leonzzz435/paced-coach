@@ -3,9 +3,11 @@ import json
 import os
 import uuid
 from datetime import datetime
+from typing import Any, cast
 
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -28,7 +30,6 @@ def _build_turn_payload() -> dict:
             "messages": [],
             "quota": {"is_limited": False, "remaining": None, "limit": None, "used": 0, "week_anchor_utc": ""},
             "has_pending_proposal": False,
-            "can_trigger_recap": True,
             "pending_proposal_ids": [],
             "next_after_seq": 4,
         },
@@ -319,6 +320,40 @@ def test_coach_turn_route_streams_sse_timeout(monkeypatch):
     assert db.info.get(deps_module.DB_SKIP_AUTO_COMMIT_FLAG) is True
 
 
+@pytest.mark.asyncio
+async def test_closing_coach_stream_cancels_turn_and_rolls_back(monkeypatch):
+    db = _DummyDB()
+    task_cancelled = asyncio.Event()
+
+    async def fake_post_coach_turn(*_args, status_emitter=None, **_kwargs):
+        assert status_emitter is not None
+        await status_emitter({"step": "thinking", "message": "Working"})
+        try:
+            await asyncio.Event().wait()
+        finally:
+            task_cancelled.set()
+
+    monkeypatch.setattr(coach_router, "post_coach_turn", fake_post_coach_turn)
+    stream = coach_router._stream_turn_events(
+        payload=coach_router.CoachTurnRequest(
+            action="text",
+            message="How was my week?",
+            idempotency_key="disconnect-key",
+        ),
+        db=db,  # type: ignore[arg-type]
+        user_id=uuid.uuid4(),
+    )
+
+    first_event = await anext(stream)
+    assert first_event.startswith("event: status")
+    await cast("Any", stream).aclose()
+
+    assert task_cancelled.is_set()
+    assert db.commit_calls == 0
+    assert db.rollback_calls == 1
+    assert db.info.get(deps_module.DB_SKIP_AUTO_COMMIT_FLAG) is True
+
+
 def test_coach_turn_non_text_action_bypasses_sse(monkeypatch):
     user_id = uuid.uuid4()
 
@@ -349,6 +384,29 @@ def test_coach_turn_non_text_action_bypasses_sse(monkeypatch):
     assert response.status_code == 200
     assert "application/json" in response.headers.get("content-type", "")
     assert response.json()["status"] == "accepted"
+
+
+def test_coach_turn_rejects_removed_recap_action():
+    user_id = uuid.uuid4()
+
+    async def fake_get_db():
+        yield object()
+
+    async def fake_get_current_user():
+        return user_id
+
+    app = create_app()
+    app.dependency_overrides[deps_module.get_db] = fake_get_db
+    app.dependency_overrides[deps_module.get_current_user] = fake_get_current_user
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/coach/turn",
+        json={"action": "recap", "idempotency_key": "removed-recap-action"},
+        headers={"Authorization": "Bearer test"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_legacy_coach_action_endpoints_are_removed():
@@ -382,7 +440,6 @@ def test_coach_thread_route_available(monkeypatch):
             "messages": [],
             "quota": {"is_limited": False, "remaining": None, "limit": None, "used": 0, "week_anchor_utc": ""},
             "has_pending_proposal": False,
-            "can_trigger_recap": True,
             "pending_proposal_ids": [],
             "next_after_seq": 3,
             "week_anchor_utc": datetime.now().isoformat(),

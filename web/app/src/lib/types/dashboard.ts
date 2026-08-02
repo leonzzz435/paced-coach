@@ -1,12 +1,10 @@
 import type { CoachTurnResponse } from "@/lib/types/coach";
+import type { SeasonPlanV3, SemanticBlockV3, WeeklyPlanV3 } from "@/components/plan-viewer/types";
+import { semanticBlockText, semanticBlockTitle } from "@/lib/semantic-block";
 import type { WeeklyRecapPendingAction, WeeklyRecapResponse } from "@/lib/types/recap";
-import type { UiAnalysis, UiDayPlan, UiKpi, UiSeasonPlan, UiWeeklyPlan } from "@/lib/types/ui-blocks";
+import type { UiAnalysis, UiDayPlan, UiHtmlBlock, UiKpi, UiSeasonPlan, UiWeeklyPlan } from "@/lib/types/ui-blocks";
 import { extractContentText } from "@/lib/types/ask-about";
 
-const DAILY_SYNC_SOURCE_LABELS: Record<string, string> = {
-  strava: "Strava",
-  whoop: "WHOOP",
-};
 export type DashboardAnalysisState = {
   analysis: UiAnalysis;
   version: number;
@@ -67,8 +65,8 @@ export type DashboardStateResponse = {
     target_date: string | null;
   };
   coach_surface: DashboardCoachSurface;
-  season?: { season_plan: UiSeasonPlan; version: number; updated_at: string; source_job_id: string } | null;
-  weekly?: { weekly_plan: UiWeeklyPlan; version: number; updated_at: string; source_job_id: string } | null;
+  season?: { season_plan: UiSeasonPlan | SeasonPlanV3; version: number; updated_at: string; source_job_id: string } | null;
+  weekly?: { weekly_plan: UiWeeklyPlan | WeeklyPlanV3; version: number; updated_at: string; source_job_id: string } | null;
   first_run: DashboardFirstRunState;
   today_mission: {
     warnings: string[];
@@ -114,10 +112,10 @@ export type DailyRunResponse = {
   sources_used: string[];
   proposal_id: string | null;
   thread_id: string | null;
-  preview_weekly_plan: UiWeeklyPlan | null;
+  preview_weekly_plan: UiWeeklyPlan | WeeklyPlanV3 | null;
   narrative: {
     dashboard_kpis: UiKpi[];
-    today_focus_blocks: Array<{ content_html: string }>;
+    today_focus_blocks: SemanticBlockV3[];
     optional_proposal_ops: Array<Record<string, unknown>>;
   };
   today_override: UiDayPlan | null;
@@ -222,11 +220,6 @@ function buildCoachSurface(input: {
   };
 }
 
-export function formatDailySyncSources(sourcesUsed: string[]): string | null {
-  if (sourcesUsed.length === 0) return null;
-  return sourcesUsed.map((sourceName) => DAILY_SYNC_SOURCE_LABELS[sourceName] ?? sourceName).join(" + ");
-}
-
 export function resolveDailySyncVerdictPreview(
   dailySync: DashboardDailySyncState,
   dayOverride: DashboardStateResponse["today_mission"]["day_override"],
@@ -245,6 +238,16 @@ type RecapTurnPayload = {
   kind: "recap";
   recap: WeeklyRecapResponse;
 };
+
+type RecapBlock = SemanticBlockV3 | UiHtmlBlock;
+
+function recapBlockTitle(block: RecapBlock): string | null {
+  return block.type === "html" ? block.title?.trim() || null : semanticBlockTitle(block);
+}
+
+function recapBlockText(block: RecapBlock): string {
+  return block.type === "html" ? extractContentText(block.content_html) : semanticBlockText(block);
+}
 
 export function resolveWeeklyRecapPendingAction(input: {
   proposalId?: string | null;
@@ -266,11 +269,9 @@ export function resolveRecapSummaryPreview(payload: RecapTurnPayload["recap"] | 
   for (const section of [payload.narrative.this_week_blocks, payload.narrative.looking_ahead_blocks]) {
     if (!Array.isArray(section)) continue;
     for (const block of section) {
-      if (typeof block?.title === "string" && block.title.trim()) {
-        return block.title.trim();
-      }
-      if (typeof block?.content_html !== "string") continue;
-      const extracted = extractContentText(block.content_html);
+      const title = recapBlockTitle(block);
+      if (title?.trim()) return title.trim();
+      const extracted = recapBlockText(block).trim();
       if (extracted) return truncatePreviewText(extracted, 220);
     }
   }
@@ -284,11 +285,9 @@ export function resolveRecapGuidancePreview(payload: RecapTurnPayload["recap"] |
   for (const section of [payload.narrative.looking_ahead_blocks, payload.narrative.this_week_blocks]) {
     if (!Array.isArray(section)) continue;
     for (const block of section) {
-      if (typeof block?.title === "string" && block.title.trim() && block.title.trim() !== summaryPreview) {
-        return block.title.trim();
-      }
-      if (typeof block?.content_html !== "string") continue;
-      const extracted = extractContentText(block.content_html);
+      const title = recapBlockTitle(block);
+      if (title?.trim() && title.trim() !== summaryPreview) return title.trim();
+      const extracted = recapBlockText(block).trim();
       if (!extracted) continue;
       const preview = truncatePreviewText(extracted, 220);
       if (preview !== summaryPreview) {
@@ -321,7 +320,7 @@ export function buildCoachSurfaceFromDailySyncResult(
   updatedAt = new Date().toISOString(),
 ): DashboardCoachSurface | null {
   const firstFocusBlock = response.narrative.today_focus_blocks[0];
-  const preview = firstFocusBlock ? extractContentText(firstFocusBlock.content_html) : null;
+  const preview = firstFocusBlock ? semanticBlockText(firstFocusBlock) : null;
   const { primary, secondary } = splitPreviewText(preview);
 
   return buildCoachSurface({

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -42,6 +43,7 @@ def test_worker_async_runner_reuses_process_loop():
     [
         ("run_nightly_coach_memory_compaction_task", "_run_nightly_coach_memory_compaction_async"),
         ("run_coach_idempotency_cleanup_task", "_run_coach_idempotency_cleanup_async"),
+        ("run_head_coach_checkpoint_cleanup_task", "_run_head_coach_checkpoint_cleanup_async"),
     ],
 )
 def test_scheduled_tasks_use_worker_loop_runner(task_name: str, async_name: str):
@@ -61,8 +63,23 @@ def test_scheduled_tasks_use_worker_loop_runner(task_name: str, async_name: str)
     assert called_coro.cr_code is async_func.__code__
 
 
-def test_daily_proactive_task_is_disabled(caplog):
-    caplog.set_level("INFO")
-    worker_tasks.run_daily_coach_proactive_eval_task()
+def test_checkpoint_cleanup_is_scheduled_daily():
+    schedule = worker_tasks.celery_app.conf.beat_schedule["run-head-coach-checkpoint-cleanup"]
 
-    assert "Daily coach proactive eval is disabled" in caplog.text
+    assert schedule["task"] == "worker.tasks.run_head_coach_checkpoint_cleanup_task"
+
+
+def test_pending_analysis_dispatch_recovery_reenqueues_durable_intents():
+    first_job_id = uuid.uuid4()
+    second_job_id = uuid.uuid4()
+    with (
+        patch.object(worker_tasks, "get_sync_session") as get_sync_session,
+        patch.object(worker_tasks.run_analysis_task, "delay") as delay,
+    ):
+        session = get_sync_session.return_value.__enter__.return_value
+        session.execute.return_value.scalars.return_value = [first_job_id, second_job_id]
+        recovered = worker_tasks.recover_pending_analysis_dispatches_task()
+
+    assert recovered == 2
+    assert [call.args[0] for call in delay.call_args_list] == [str(first_job_id), str(second_job_id)]
+    session.commit.assert_called_once_with()

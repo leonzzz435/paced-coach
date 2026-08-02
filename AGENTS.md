@@ -2,7 +2,7 @@
 
 ## Mission
 You are assisting with an AI service that:
-1.  **Reads training context and activity history** from users and connected sources.
+1.  **Reads athlete-declared context and locally owned plans, calendar state, competitions, and coaching history.** The v2.2 runtime has no external training-data connectors.
 2.  **Runs an agentic workflow** (LangGraph) on that context.
 3.  **Returns coaching outputs** (season roadmap, 28-day execution block, insights, and adaptations).
 **Architecture**: Python Core (FastAPI/Celery/LangGraph) + Next.js frontend, running local-first by default.
@@ -46,6 +46,8 @@ Before starting a complex task:
 ## Planning & Roadmap (Keep Current)
 
 This repo uses a lightweight planning system under `agents_docs/roadmap/`.
+
+Verified engineering learnings live in `docs/solutions/`, organized by category with searchable YAML frontmatter (`module`, `tags`, `problem_type`). They are relevant when implementing or debugging in documented areas.
 
 - **Near-term execution:** `agents_docs/roadmap/now.md` (next 7–14 days)
 - **Longer-term direction:** `agents_docs/roadmap/roadmap.md` (3–6 months)
