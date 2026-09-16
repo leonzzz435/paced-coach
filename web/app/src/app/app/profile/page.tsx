@@ -247,6 +247,7 @@ export default function AthleteProfilePage() {
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
+    if (state !== "loaded" || saveState === "saving") return;
     setSaveState("saving");
     setError(null);
     try {
@@ -313,9 +314,18 @@ export default function AthleteProfilePage() {
         </Link>
       </div>
 
-      {state === "error" ? <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-red-400">{error}</div> : null}
+      {state === "loading" ? <p role="status" className="text-sm text-[var(--text-secondary)]">Loading your saved profile…</p> : null}
+      {state === "error" ? (
+        <div role="alert" className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-red-400">
+          <p>{error}</p>
+          <button type="button" className={`${SECONDARY_BUTTON_CLASS_NAME} mt-3`} onClick={() => void load()}>
+            Retry loading profile
+          </button>
+        </div>
+      ) : null}
 
       <form onSubmit={onSave} className="space-y-4">
+        <fieldset disabled={state !== "loaded" || saveState === "saving"} className="min-w-0 space-y-4">
         <section className={PHYSIOLOGY_SECTION_CLASS_NAME}>
           <div className="mb-3">
             <div className={SECTION_TITLE_CLASS_NAME}>Physiology baselines</div>
@@ -577,7 +587,7 @@ export default function AthleteProfilePage() {
             </button>
             <button
               className={PRIMARY_BUTTON_CLASS_NAME}
-              disabled={saveState === "saving" || state === "loading" || !hasAnyContent || Boolean(timezoneValidationMessage)}
+              disabled={saveState === "saving" || state !== "loaded" || !hasAnyContent || Boolean(timezoneValidationMessage)}
               type="submit"
             >
               {saveState === "saving"
@@ -590,6 +600,7 @@ export default function AthleteProfilePage() {
             </button>
           </div>
         </section>
+        </fieldset>
 
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
       </form>
