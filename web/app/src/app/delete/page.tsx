@@ -21,7 +21,6 @@ function readFirst(value: string | string[] | undefined): string | null {
 export default async function DeleteDataPage({ searchParams }: DeleteDataPageProps) {
   const resolvedParams = (await searchParams) ?? {};
   const status = readFirst(resolvedParams.status);
-  const authCleanup = readFirst(resolvedParams.auth_cleanup);
 
   return (
     <PublicPageShell title="Local Data Reset" subtitle="How local app data deletion works.">
@@ -31,25 +30,6 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
           <p className="mt-2">
             User-scoped local app data and connector credentials were removed from the active local database. The
             technical local owner row was preserved so the app can continue to start cleanly.
-          </p>
-        </section>
-      ) : null}
-
-      {status === "deleted" ? (
-        <section
-          className={`rounded-lg border p-6 text-sm ${
-            authCleanup === "pending"
-              ? "border-amber-200 bg-amber-50 text-amber-900"
-              : "border-emerald-200 bg-emerald-50 text-emerald-900"
-          }`}
-        >
-          <h2 className="text-lg font-medium">
-            {authCleanup === "pending" ? "Local data deleted" : "Account deletion completed"}
-          </h2>
-          <p className="mt-2">
-            {authCleanup === "pending"
-              ? "Local paced.coach data was deleted. Hosted sign-in cleanup still needs follow-up."
-              : "Local paced.coach data and the associated hosted sign-in identity were deleted from the active system."}
           </p>
         </section>
       ) : null}
@@ -101,7 +81,7 @@ export default async function DeleteDataPage({ searchParams }: DeleteDataPagePro
         </p>
       </section>
 
-      <p className="text-xs text-zinc-500">Operational draft — last updated: August 1, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — not legal advice. Last updated: September 16, 2026.</p>
     </PublicPageShell>
   );
 }

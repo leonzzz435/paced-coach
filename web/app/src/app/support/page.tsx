@@ -31,7 +31,7 @@ export default function SupportPage() {
           <li>Local setup and development issues</li>
           <li>Local privacy reset or data deletion questions</li>
           <li>Access and export requests for stored data</li>
-          <li>Training data source connection or sync issues</li>
+          <li>Plan generation and coach chat issues</li>
           <li>Technical bugs and security reports</li>
         </ul>
       </section>
@@ -58,7 +58,7 @@ export default function SupportPage() {
         </p>
       </section>
 
-      <p className="text-xs text-zinc-500">Last updated: May 31, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — not legal advice. Last updated: September 16, 2026.</p>
     </PublicPageShell>
   );
 }
