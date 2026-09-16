@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import DashboardClient from "@/components/dashboard/dashboard-client";
 import PlanViewer from "@/components/plan-viewer/plan-viewer";
-import { DEFAULT_DEMO_PERSONA } from "@/lib/demo/demo-data";
 import { DEMO_SEASON_PLAN_BY_PERSONA } from "@/lib/demo/fixtures/v3/season";
 import { DEMO_WEEKLY_PLAN_BY_PERSONA } from "@/lib/demo/fixtures/v3/weekly";
 import { DEFAULT_DEMO_PERSONA_ID } from "@/lib/demo/personas";
@@ -31,12 +30,7 @@ function demoDashboardState(): DashboardStateResponse {
       today_local_date: today?.date ?? "2026-08-04",
       now_local_iso: DEMO_NOW_ISO,
     },
-    analysis: {
-      analysis: DEFAULT_DEMO_PERSONA.analysis,
-      version: DEFAULT_DEMO_PERSONA.analysis.version,
-      updated_at: DEMO_NOW_ISO,
-      source_job_id: "demo-analysis-job",
-    },
+    analysis: null,
     status_surface: {
       kpis: [],
       source: "none",
@@ -151,12 +145,13 @@ function DemoHero() {
             declared context.
           </p>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400">
-            Runs locally. Version 2.2.0 is provider-free: athlete-declared context is the product, not a fallback.
+            Runs locally from your declared context. No activity-platform or wearable account is connected.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link
               className="rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-950 shadow-[0_12px_40px_rgba(255,255,255,0.18)] transition hover:scale-[1.02]"
               href="/app"
+              prefetch={false}
             >
               Open local app
             </Link>
@@ -212,16 +207,16 @@ function CoachPreview() {
   const messages = [
     {
       role: "Athlete",
-      body: "I slept badly and my legs are flat. Should I still do the threshold run?",
+      body: "I only have 25 minutes for Monday's run. Can we adjust the plan?",
     },
     {
       role: "Coach",
       body:
-        "Modify, do not force. Keep the aerobic warm-up, replace threshold reps with 35 minutes easy plus strides only if the legs open up. I would protect tomorrow's bike quality.",
+        "I can propose a shorter easy run for Monday and keep the rest of the block intact. Review the change before it becomes part of your saved plan.",
     },
     {
       role: "Patch proposal",
-      body: "Move threshold to Thursday, keep swim technique, reduce today's load by 32 minutes.",
+      body: "Monday: 25 minutes easy, including a gentle start and finish. Pending your approval.",
     },
   ];
 
@@ -234,7 +229,7 @@ function CoachPreview() {
       <SectionHeader
         eyebrow="Coach workspace"
         title="Ask questions against the actual plan context."
-        body="The public demo keeps the chat static, but the local app uses your saved profile, active plan, competitions, and athlete messages when generating responses."
+        body="Illustrative conversation, not a recorded model response. In the local app, the coach uses your saved profile, active plan, competitions, and messages."
       />
       <div className="mx-auto mt-8 grid max-w-5xl gap-4">
         {messages.map((message, index) => (
@@ -264,7 +259,7 @@ function DashboardPreview({ dashboardState }: { dashboardState: DashboardStateRe
         body="Declared athlete context is the product: goals, history, availability, constraints, and the active plan. This preview uses sanitized fixtures and never touches your database."
       />
       <div className="mt-8 rounded-[2rem] border border-white/10 bg-[#0b0f19]/80 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.36)] sm:p-6">
-        <DashboardClient initialState={dashboardState} />
+        <DashboardClient initialState={dashboardState} publicPreview />
       </div>
     </section>
   );
@@ -276,7 +271,7 @@ function PlanPreview() {
       <SectionHeader
         eyebrow="Generated training plan"
         title="Season architecture plus a 28-day execution block."
-        body="The same versioned renderer handles roadmap, coach report, and calendar-style day plans."
+        body="Explore a synthetic season roadmap and the complete 28-day training calendar."
       />
       <div className="mt-8 rounded-[2rem] border border-white/10 bg-[#0b0f19]/80 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.36)] sm:p-6">
         <Suspense
@@ -287,7 +282,6 @@ function PlanPreview() {
           }
         >
           <PlanViewer
-            analysis={DEFAULT_DEMO_PERSONA.analysis}
             nowIso={DEMO_NOW_ISO}
             publicPreview
             seasonPlan={DEMO_SEASON_PLAN}

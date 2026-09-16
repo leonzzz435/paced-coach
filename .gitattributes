@@ -4,6 +4,8 @@
 .env export-ignore
 .env.* export-ignore
 web/app/.env.local export-ignore
+.env.example -export-ignore
+web/app/.env.example -export-ignore
 my_training_config*.yaml export-ignore
 celerybeat-schedule* export-ignore
 

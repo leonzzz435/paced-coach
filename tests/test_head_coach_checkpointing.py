@@ -25,7 +25,7 @@ RUN_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 def test_postgres_checkpointer_dependency_and_schema_version_are_pinned_together():
-    assert version("langgraph-checkpoint-postgres") == "3.1.0"
+    assert version("langgraph-checkpoint-postgres") == "3.1.2"
     assert CHECKPOINT_SCHEMA_VERSION == len(MIGRATIONS) - 1 == 9
     assert CHECKPOINT_TABLES == {
         "checkpoint_migrations",

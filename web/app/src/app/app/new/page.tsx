@@ -239,8 +239,8 @@ export default function NewRunPage() {
           <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-emerald-400">Temporary overrides</h2>
 
           <div>
-            <label className="block text-sm font-medium text-[var(--text-primary)]">Athlete display name</label>
-            <input
+            <label className="block text-sm font-medium text-[var(--text-primary)]" htmlFor="new-athlete-display-name">Athlete display name</label>
+            <input id="new-athlete-display-name"
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--text-primary)] placeholder:text-[var(--text-dim)]"
               value={athleteName}
               onChange={(e) => setAthleteName(e.target.value)}
@@ -251,8 +251,8 @@ export default function NewRunPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[var(--text-primary)]">Current status notes (analysis)</label>
-            <textarea
+            <label className="block text-sm font-medium text-[var(--text-primary)]" htmlFor="new-current-status-notes-analysis">Current status notes (analysis)</label>
+            <textarea id="new-current-status-notes-analysis"
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-dim)] resize-y"
               rows={3}
               value={analysisNotes}
@@ -263,8 +263,8 @@ export default function NewRunPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[var(--text-primary)]">Planning notes (planning)</label>
-            <textarea
+            <label className="block text-sm font-medium text-[var(--text-primary)]" htmlFor="new-planning-notes-planning">Planning notes (planning)</label>
+            <textarea id="new-planning-notes-planning"
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-dim)] resize-y"
               rows={3}
               value={planningNotes}
@@ -275,8 +275,8 @@ export default function NewRunPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[var(--text-primary)]">Temporary constraints</label>
-            <textarea
+            <label className="block text-sm font-medium text-[var(--text-primary)]" htmlFor="new-temporary-constraints">Temporary constraints</label>
+            <textarea id="new-temporary-constraints"
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-dim)] resize-y"
               rows={2}
               value={temporaryConstraints}
@@ -287,8 +287,8 @@ export default function NewRunPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[var(--text-primary)]">Plan start date</label>
-            <input
+            <label className="block text-sm font-medium text-[var(--text-primary)]" htmlFor="new-plan-start-date">Plan start date</label>
+            <input id="new-plan-start-date"
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--text-primary)] sm:w-56"
               type="date"
               value={planStartDate}

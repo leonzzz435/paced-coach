@@ -22,7 +22,7 @@ DB_SKIP_AUTO_COMMIT_FLAG = "skip_auto_commit"
 _LOCAL_AUTH_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1", "testserver", "api"}
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
-engine = create_async_engine(settings.database_url_async, echo=settings.debug)
+engine = create_async_engine(settings.database_url_async, echo=settings.debug, hide_parameters=True)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

@@ -34,18 +34,24 @@ def build_head_coach_agent(
         f"{build_head_coach_system_prompt(profile)}\n\n"
         f"{profile.name.value.replace('_', ' ').title()} operating instructions:\n{task_instructions}"
     )
+    response_format = ToolStrategy(
+        response_schema,
+        handle_errors=(
+            f"Your response did not satisfy the {response_schema.__name__} contract. Correct the validation "
+            "errors and return a valid structured response without changing well-supported coaching judgment."
+        ),
+    )
+    response_tool_names = frozenset(spec.name for spec in response_format.schema_specs)
+    for tool in tools:
+        tool_name = tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", getattr(tool, "__name__", None))
+        if tool_name in response_tool_names:
+            raise ValueError(f"Application tool {tool_name!r} conflicts with the structured response schema")
     return create_agent(
         model=model,
         tools=tools,
         system_prompt=system_prompt,
-        middleware=build_head_coach_middleware(profile),
-        response_format=ToolStrategy(
-            response_schema,
-            handle_errors=(
-                f"Your response did not satisfy the {response_schema.__name__} contract. Correct the validation "
-                "errors and return a valid structured response without changing well-supported coaching judgment."
-            ),
-        ),
+        middleware=build_head_coach_middleware(profile, response_tool_names=response_tool_names),
+        response_format=response_format,
         name=name,
     )
 

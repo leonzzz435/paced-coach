@@ -14,6 +14,7 @@ _config_cache: dict[str, "Config"] = {}
 
 
 class AIMode(Enum):
+    ASTRA = "astra"
     STANDARD = "standard"
     COST_EFFECTIVE = "cost_effective"
     DEVELOPMENT = "development"

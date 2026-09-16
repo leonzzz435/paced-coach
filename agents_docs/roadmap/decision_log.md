@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-09-16 — Relaunch the local app as an engineering reference
+
+- **Decision:** Prepare v2.3.0 with opt-in Astra, audited dependencies, real browser
+  acceptance and current synthetic assets for the self-hosted open-source app.
+- **Runtime:** Keep LangGraph and local checkpoints; the bounded Agents API
+  experiment does not justify a harness migration in this release.
+- **Distribution:** Each user runs the entire application with their own OpenAI
+  key. No Vercel, Clerk, Stripe, central hosted service or separate website
+  deployment is needed. External legal review remains outstanding. Article and
+  social copy remain private drafts for maintainer review.
+- **Evidence:** Track current results in `docs/releases/v2.3.0-verification.md`;
+  do not reinterpret historical v2.2.0 checks as current certification.
+
 Keep this file short. It should capture durable product and architecture decisions, not day-by-day cleanup history.
 
 ## 2026-07-19 — One Head Coach owns coaching decisions end to end

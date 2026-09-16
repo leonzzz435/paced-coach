@@ -18,6 +18,7 @@ type Props = {
     theme?: WeeklyPlanTheme;
     mode?: PlanViewMode;
     nowIso?: string;
+    publicPreview?: boolean;
 };
 
 type ExecutionDay = WeeklyPlanV3["weeks"][number]["days"][number];
@@ -80,6 +81,7 @@ export default function WeeklyPlanViewV3({
     theme = "light",
     mode = "full",
     nowIso,
+    publicPreview = false,
 }: Props) {
     const today = athleteLocalYYYYMMDD(nowIso);
     const visibleWeeks = mode === "landing" ? weeklyPlan.weeks.slice(0, 2) : weeklyPlan.weeks;
@@ -100,6 +102,10 @@ export default function WeeklyPlanViewV3({
         if (pendingDayIdsRef.current.has(day.day_id)) return;
         const previousValue = isDayDone(day);
         const nextValue = !previousValue;
+        if (publicPreview || mode === "landing") {
+            setCompletedMap((current) => ({ ...current, [day.day_id]: nextValue }));
+            return;
+        }
         pendingDayIdsRef.current.add(day.day_id);
         setPendingDayIds((current) => new Set(current).add(day.day_id));
         setCompletedMap((current) => ({ ...current, [day.day_id]: nextValue }));
@@ -155,6 +161,9 @@ export default function WeeklyPlanViewV3({
                     </div>
                     <div className="text-xs text-[var(--text-muted)]">Select a day for details</div>
                 </div>
+                {(publicPreview || mode === "landing") && (
+                    <p className="mb-4 text-xs text-[var(--text-muted)]">Demo only: checkmarks are temporary and do not change a saved plan.</p>
+                )}
 
                 <div className="space-y-3">
                     {visibleWeeks.map((week, weekIndex) => {

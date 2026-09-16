@@ -1,6 +1,6 @@
 # LEGAL TODO
 
-Status date: 2026-07-13
+Status date: 2026-09-16
 Scope: `web/app` public legal pages (`/impressum`, `/privacy`, `/terms`, `/support`, `/delete`)
 
 ## Local-First OSS Review
@@ -33,6 +33,12 @@ Scope: `web/app` public legal pages (`/impressum`, `/privacy`, `/terms`, `/suppo
 - [ ] Run one local privacy reset against disposable data and confirm `/delete` matches observed behavior.
 
 ## External Review
+
+The maintainer confirmed on 2026-09-16 that external review has not yet occurred.
+The distribution in scope is self-hosted open-source code; a managed service or
+separate website deployment is not planned by this release. Review the legal
+pages included in that application against this distribution model. Do not
+infer legal clearance from the already published v2.2.0 tag.
 
 - [ ] Run one legal review by a Germany-based lawyer before broad public distribution.
 - [ ] Review the `v2.2.0` release candidate's `/impressum`, `/privacy`, `/terms`, `/support`, and `/delete` pages against the local-first distribution model.

@@ -62,6 +62,10 @@ class ModelSelector:
     }
 
     CONFIGURATIONS: dict[str, ModelConfiguration] = {
+        "gpt-6-astra": ModelConfiguration(
+            name="gpt-6-astra",
+            base_url="https://api.openai.com/v1",
+        ),
         # OpenAI Models
         "gpt-4o": ModelConfiguration(
             name="gpt-4o",
@@ -146,6 +150,11 @@ class ModelSelector:
     }
 
     MODEL_CONFIGS: dict[str, dict[str, Any]] = {
+        "gpt-6-astra": {
+            "use_responses_api": True,
+            "model_kwargs": {"max_output_tokens": 128000},
+            "log": "Using GPT-6 Astra with Responses API for {role}",
+        },
         "gpt-5": {
             "use_responses_api": True,
             "model_kwargs": {"max_output_tokens": 100000},

@@ -32,12 +32,21 @@ def _gpt_5_5_assignments() -> dict[AgentRole, str]:
     }
 
 
+def _astra_assignments() -> dict[AgentRole, str]:
+    return {
+        **_gpt_5_5_assignments(),
+        AgentRole.HEAD_COACH: "gpt-6-astra",
+        AgentRole.SPECIALIST: "gpt-6-astra",
+    }
+
+
 @dataclass
 class AISettings:
     mode: AIMode
 
     model_assignments: dict[AIMode, dict[AgentRole, str]] = field(
         default_factory=lambda: {
+            AIMode.ASTRA: _astra_assignments(),
             AIMode.STANDARD: _gpt_5_6_sol_search_assignments(),
             AIMode.COST_EFFECTIVE: _gpt_5_5_assignments(),
             AIMode.DEVELOPMENT: _gpt_5_5_assignments(),

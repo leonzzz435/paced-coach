@@ -10,6 +10,7 @@ import SemanticBlock from "@/components/plan-viewer/versioned/semantic-block-v3"
 import type { OnAskAboutBlock } from "@/lib/types/ask-about";
 
 type Props = {
+    nowIso?: string;
     seasonPlan: SeasonPlanV3;
     selectedPhaseId?: string | null;
     onAskAboutBlock?: OnAskAboutBlock;
@@ -23,8 +24,8 @@ function formatDate(value: string): string {
     return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(parsed);
 }
 
-function activePhaseId(plan: SeasonPlanV3): string | null {
-    const today = new Date().toISOString().slice(0, 10);
+function activePhaseId(plan: SeasonPlanV3, nowIso?: string): string | null {
+    const today = (nowIso ?? new Date().toISOString()).slice(0, 10);
     return plan.phases.find((phase) => phase.start_date <= today && today <= phase.end_date)?.phase_id ?? null;
 }
 
@@ -34,8 +35,9 @@ export default function SeasonPlanViewV3({
     onAskAboutBlock,
     onPhaseSelect,
     mode = "full",
+    nowIso,
 }: Props) {
-    const currentPhaseId = useMemo(() => activePhaseId(seasonPlan), [seasonPlan]);
+    const currentPhaseId = useMemo(() => activePhaseId(seasonPlan, nowIso), [seasonPlan, nowIso]);
     const [localPhaseId, setLocalPhaseId] = useState<string | null>(selectedPhaseId ?? currentPhaseId ?? seasonPlan.phases[0]?.phase_id ?? null);
     const focusedPhaseId = selectedPhaseId ?? localPhaseId;
     const visiblePhases = mode === "landing" ? seasonPlan.phases.slice(0, 3) : seasonPlan.phases;

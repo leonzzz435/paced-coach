@@ -323,8 +323,8 @@ export default function AthleteProfilePage() {
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
-              <label className={LABEL_CLASS_NAME}>FTP (watts)</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-ftp-watts">FTP (watts)</label>
+              <input id="profile-ftp-watts"
                 className={INPUT_CLASS_NAME}
                 inputMode="numeric"
                 value={profile.physiology.ftp ?? ""}
@@ -336,8 +336,8 @@ export default function AthleteProfilePage() {
               <p className={HELP_TEXT_CLASS_NAME}>Enter your latest trusted FTP so bike sessions use realistic intensity anchors.</p>
             </div>
             <div>
-              <label className={LABEL_CLASS_NAME}>LTHR (bpm)</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-lthr-bpm">LTHR (bpm)</label>
+              <input id="profile-lthr-bpm"
                 className={INPUT_CLASS_NAME}
                 inputMode="numeric"
                 value={profile.physiology.lthr ?? ""}
@@ -349,8 +349,8 @@ export default function AthleteProfilePage() {
               <p className={HELP_TEXT_CLASS_NAME}>Use your current threshold heart rate so threshold and tempo calls are personalized.</p>
             </div>
             <div>
-              <label className={LABEL_CLASS_NAME}>Max HR (bpm)</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-max-hr-bpm">Max HR (bpm)</label>
+              <input id="profile-max-hr-bpm"
                 className={INPUT_CLASS_NAME}
                 inputMode="numeric"
                 value={profile.physiology.max_hr ?? ""}
@@ -364,8 +364,8 @@ export default function AthleteProfilePage() {
           </div>
 
           <div className="mt-3">
-            <label className={LABEL_CLASS_NAME}>Custom zones (optional)</label>
-            <textarea
+            <label className={LABEL_CLASS_NAME} htmlFor="profile-custom-zones-optional">Custom zones (optional)</label>
+            <textarea id="profile-custom-zones-optional"
               className={TEXTAREA_CLASS_NAME}
               rows={2}
               value={profile.physiology.custom_zones ?? ""}
@@ -386,8 +386,8 @@ export default function AthleteProfilePage() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className={LABEL_CLASS_NAME}>Sports (comma separated)</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-sports-comma-separated">Sports (comma separated)</label>
+              <input id="profile-sports-comma-separated"
                 className={INPUT_CLASS_NAME}
                 value={sportsInput}
                 onChange={(e) => setSportsInput(e.target.value)}
@@ -396,8 +396,8 @@ export default function AthleteProfilePage() {
               <p className={HELP_TEXT_CLASS_NAME}>List the disciplines you actively train so weekly structure matches your real program.</p>
             </div>
             <div>
-              <label className={LABEL_CLASS_NAME}>Excluded sports (comma separated)</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-excluded-sports-comma-separated">Excluded sports (comma separated)</label>
+              <input id="profile-excluded-sports-comma-separated"
                 className={INPUT_CLASS_NAME}
                 value={excludedSportsInput}
                 onChange={(e) => setExcludedSportsInput(e.target.value)}
@@ -408,8 +408,8 @@ export default function AthleteProfilePage() {
           </div>
 
           <div className="mt-3">
-            <label className={LABEL_CLASS_NAME}>Injuries / limitations</label>
-            <textarea
+            <label className={LABEL_CLASS_NAME} htmlFor="profile-injuries-limitations">Injuries / limitations</label>
+            <textarea id="profile-injuries-limitations"
               className={TEXTAREA_CLASS_NAME}
               value={profile.preferences.injuries_limitations ?? ""}
               onChange={(e) =>
@@ -426,7 +426,7 @@ export default function AthleteProfilePage() {
 
           <div className="mt-3">
             <div className="flex items-center justify-between gap-3">
-              <label className={LABEL_CLASS_NAME}>Timezone</label>
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-timezone">Timezone</label>
               <button
                 className="text-xs font-medium text-[var(--text-secondary)] underline decoration-[var(--border)] underline-offset-4 hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
@@ -457,6 +457,7 @@ export default function AthleteProfilePage() {
                   preferences: { ...prev.preferences, timezone: e.target.value },
                 }));
               }}
+              id="profile-timezone"
               placeholder="America/Los_Angeles"
             />
             {timezoneSuggestions.length > 0 ? (
@@ -483,8 +484,8 @@ export default function AthleteProfilePage() {
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className={LABEL_CLASS_NAME}>Days per week</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-days-per-week">Days per week</label>
+              <input id="profile-days-per-week"
                 className={INPUT_CLASS_NAME}
                 inputMode="numeric"
                 value={profile.availability.days_per_week ?? ""}
@@ -499,8 +500,8 @@ export default function AthleteProfilePage() {
               <p className={HELP_TEXT_CLASS_NAME}>Set a realistic training frequency so progression logic stays sustainable.</p>
             </div>
             <div>
-              <label className={LABEL_CLASS_NAME}>Time windows</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-time-windows">Time windows</label>
+              <input id="profile-time-windows"
                 className={INPUT_CLASS_NAME}
                 value={profile.availability.time_windows ?? ""}
                 onChange={(e) =>
@@ -512,8 +513,8 @@ export default function AthleteProfilePage() {
             </div>
           </div>
           <div className="mt-3">
-            <label className={LABEL_CLASS_NAME}>Upcoming travel</label>
-            <input
+            <label className={LABEL_CLASS_NAME} htmlFor="profile-upcoming-travel">Upcoming travel</label>
+            <input id="profile-upcoming-travel"
               className={INPUT_CLASS_NAME}
               value={profile.availability.upcoming_travel ?? ""}
               onChange={(e) =>
@@ -533,8 +534,8 @@ export default function AthleteProfilePage() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-1">
             <div>
-              <label className={LABEL_CLASS_NAME}>Primary goal</label>
-              <input
+              <label className={LABEL_CLASS_NAME} htmlFor="profile-primary-goal">Primary goal</label>
+              <input id="profile-primary-goal"
                 className={INPUT_CLASS_NAME}
                 value={profile.goals.primary_goal ?? ""}
                 onChange={(e) => setProfile((prev) => ({ ...prev, goals: { ...prev.goals, primary_goal: e.target.value } }))}
@@ -545,8 +546,8 @@ export default function AthleteProfilePage() {
           </div>
 
           <div className="mt-3">
-            <label className={LABEL_CLASS_NAME}>Additional notes</label>
-            <textarea
+            <label className={LABEL_CLASS_NAME} htmlFor="profile-additional-notes">Additional notes</label>
+            <textarea id="profile-additional-notes"
               className={TEXTAREA_CLASS_NAME}
               value={profile.goals.notes ?? ""}
               onChange={(e) => setProfile((prev) => ({ ...prev, goals: { ...prev.goals, notes: e.target.value } }))}

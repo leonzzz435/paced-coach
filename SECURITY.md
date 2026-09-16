@@ -8,7 +8,10 @@ Do not expose the no-login app to a LAN or public internet without adding authen
 
 ## Reporting Issues
 
-Please report security issues privately to the maintainer instead of opening a public issue with exploit details.
+Use [GitHub private vulnerability reporting](https://github.com/leonzzz435/paced-coach/security/advisories/new)
+or email `support@paced.coach`. Do not open a public issue containing exploit
+details, credentials or athlete data. Private vulnerability reporting is enabled
+for this repository.
 
 Include:
 
@@ -45,6 +48,16 @@ The local app can send data to:
 Leave optional integrations unset if you do not want those network paths.
 
 ## Public Release Gate
+
+Check known dependency advisories for the installed environment and npm lockfile:
+
+```bash
+bash scripts/audit_dependencies.sh
+```
+
+This uses an isolated, pinned `pip-audit` installation plus `npm audit` and keeps
+reports under ignored `.tmp/dependency-audit/`. A clean result is a dated advisory
+check, not a guarantee that the software has no vulnerabilities.
 
 Before publishing a public release, run the non-destructive audit from a clean release-candidate commit:
 
