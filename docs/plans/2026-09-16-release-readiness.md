@@ -18,16 +18,17 @@ Vercel, Clerk and Stripe are not setup or release prerequisites.
 ## Work packages
 
 - [x] Resolve current dependency advisories and verify both dependency trees.
-- [ ] Audit tracked content, reachable history, workflows, public fixtures, and assets.
+- [x] Audit tracked content, reachable history, workflows, public fixtures, and assets.
 - [x] Add opt-in Astra support through the central model selector; preserve existing
   cost-effective defaults and semantic reasoning/tool profiles.
 - [x] Record a bounded synthetic GPT-5.5/Astra comparison and a live Astra
   initial-planning and ongoing-coaching lifecycle, without benchmark claims.
 - [x] Evaluate the Agents API against current ownership, resume, privacy, and
   mutation contracts; document the decision before changing runtime architecture.
-- [ ] Run backend and frontend checks, PostgreSQL durability tests, and CI.
+- [x] Run backend and frontend checks, PostgreSQL durability tests, and CI.
 - [x] Add reproducible browser coverage for demo and first-run behavior.
 - [x] Exercise a live synthetic coaching lifecycle and disposable restart recovery.
+- [x] Finish the fresh-install repeat after fixing the profile loading race.
 - [x] Recapture and visually inspect screenshots; prepare a synthetic demo recording.
 - [x] Align README, release evidence, contributor entry points, and product claims.
 - [ ] Prepare a reviewed GitHub release draft for the audited candidate.
