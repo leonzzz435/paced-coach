@@ -41,7 +41,7 @@ export default function ImpressumPage() {
         <p>We are not obliged and not willing to participate in dispute resolution proceedings before a consumer arbitration board.</p>
       </section>
 
-      <p className="text-xs text-zinc-500">Last updated: April 9, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — not legal advice. Last updated: September 16, 2026.</p>
     </PublicPageShell>
   );
 }

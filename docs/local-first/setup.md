@@ -4,16 +4,29 @@ This app is designed for a single local operator on `localhost`.
 
 ## Prerequisites
 
-- Docker with Docker Compose v2
+- Docker with Docker Compose v2 and the Buildx plugin
 - Pixi
 - Node.js 24 and npm
 - One OpenAI API key: `OPENAI_API_KEY`
+
+Verify that both Docker plugins are available before starting:
+
+```bash
+docker compose version
+docker buildx version
+```
+
+On Linux, Compose and Buildx can be separate packages. Install both using the
+Docker installation instructions for your operating system; for example,
+[Docker's Ubuntu guide](https://docs.docker.com/engine/install/ubuntu/).
 
 ## Setup
 
 ```bash
 cp .env.example .env
 cp web/app/.env.example web/app/.env.local
+
+# Edit .env and set OPENAI_API_KEY before starting the app.
 
 make setup
 
@@ -34,7 +47,7 @@ No wearable is required. With an OpenAI API key configured:
 3. Generate your season roadmap and 28-day execution block.
 4. Open the plan calendar, then continue the same context in coach chat.
 
-Version 2.2.0 has no external training-data connectors. The complete release path is profile, goal/race, plan, calendar, and coach chat.
+The current build has no external training-data connectors. The complete release path is profile, goal/race, plan, calendar, and coach chat.
 
 ## Required Configuration
 

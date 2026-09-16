@@ -33,10 +33,10 @@ export default function TermsPage() {
         <h2 className="text-lg font-medium text-zinc-900">3. Local Access and Credentials</h2>
         <p>
           The default build is a no-login single-user app intended for localhost. You are responsible for securing your
-          local environment, database, API keys, OAuth credentials, and connected provider accounts.
+          local environment, database, and API keys.
         </p>
         <p>Credentials must not be committed to source control or shared with third parties.</p>
-        <p>You may only connect training data sources that you are authorized to use.</p>
+        <p>The current build uses the context you enter and does not connect external training-data accounts.</p>
       </section>
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
@@ -92,7 +92,7 @@ export default function TermsPage() {
           Local data reset is available from Settings only after the operator enables the explicit reset flags. The
           reset removes user-scoped app data and any legacy connector records from the local application database.
         </p>
-        <p>Version 2.2.0 does not perform external training-data imports.</p>
+        <p>The current build does not perform external training-data imports.</p>
       </section>
 
       <section className="space-y-3 rounded-lg border bg-white p-6 text-sm text-zinc-700">
@@ -102,7 +102,7 @@ export default function TermsPage() {
       </section>
 
       <p className="text-xs text-zinc-500">
-        Operational draft for external legal review — not legal advice. Last updated: August 1, 2026.
+        Operational draft for external legal review — not legal advice. Last updated: September 16, 2026.
       </p>
     </PublicPageShell>
   );

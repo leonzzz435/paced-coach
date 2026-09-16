@@ -41,7 +41,7 @@ Open the same preview locally at `http://localhost:3000/demo` after `make start`
 
 ## Requirements
 
-- Docker with Docker Compose v2
+- Docker with Docker Compose v2 and the Buildx plugin
 - Pixi
 - Node.js 24 and npm
 - One OpenAI API key: `OPENAI_API_KEY`

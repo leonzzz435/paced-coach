@@ -81,7 +81,7 @@ export default function PrivacyPage() {
           generate analysis, a season roadmap, a 28-day plan, and coaching responses.
         </p>
         <p>
-          Version 2.2.0 does not connect to external activity or recovery-data providers. It must not present missing
+          This local-first build does not connect to external activity or recovery-data providers. It must not present missing
           device evidence as known fact.
         </p>
         <p>
@@ -154,7 +154,7 @@ export default function PrivacyPage() {
         </p>
       </section>
 
-      <p className="text-xs text-zinc-500">Operational draft — last updated: August 1, 2026</p>
+      <p className="text-xs text-zinc-500">Operational draft — not legal advice. Last updated: September 16, 2026.</p>
     </PublicPageShell>
   );
 }

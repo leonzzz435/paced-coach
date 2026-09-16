@@ -23,7 +23,7 @@ const MENU_ITEMS: MenuItem[] = [
   {
     href: "/app/settings",
     label: "Setup & data",
-    description: "Manage integrations, sync controls, and local reset.",
+    description: "Review local setup and manage saved app data.",
     icon: Settings,
   },
 ];
@@ -86,7 +86,7 @@ export default function MobileAccountMenu() {
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">Local app</div>
                 <h2 className="mt-2 text-xl font-semibold tracking-tight text-[var(--text-primary)]">Manage your setup</h2>
                 <p className="mt-2 max-w-sm text-sm leading-6 text-[var(--text-secondary)]">
-                  Reach local profile and setup controls without adding another bottom tab.
+                  Edit your profile, review local setup, and manage saved app data.
                 </p>
               </div>
 
@@ -129,7 +129,7 @@ export default function MobileAccountMenu() {
             </div>
 
             <div className="mt-4 rounded-[1.4rem] border border-emerald-400/15 bg-emerald-400/[0.08] px-4 py-3 text-xs leading-5 text-emerald-100/80">
-              Single-user local mode is active by default. There is no hosted account or sign-out flow in OSS v1.
+              Single-user local mode is active by default.
             </div>
           </div>
         </div>

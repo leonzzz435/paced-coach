@@ -27,7 +27,7 @@ export default function SettingsPage() {
       if (!response.ok) {
         throw new Error(payload?.detail?.message ?? payload?.detail ?? payload?.message ?? "Local data reset failed.");
       }
-      window.location.assign(payload?.redirect_path ?? "/delete?status=deleted");
+      window.location.assign(payload?.redirect_path ?? "/delete?status=reset");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "Local data reset failed.");
     }

@@ -1,6 +1,7 @@
 # September release readiness
 
-Status: in progress. Started 2026-09-16 from public `main` at
+Status: engineering candidate prepared; final publication gates remain open.
+Started 2026-09-16 from public `main` at
 `2664b5e333670cc33f7a3e9cdd10b27560fbe529`.
 
 ## Outcome
@@ -31,7 +32,11 @@ Vercel, Clerk and Stripe are not setup or release prerequisites.
 - [x] Finish the fresh-install repeat after fixing the profile loading race.
 - [x] Recapture and visually inspect screenshots; prepare a synthetic demo recording.
 - [x] Align README, release evidence, contributor entry points, and product claims.
-- [ ] Prepare a reviewed GitHub release draft for the audited candidate.
+- [x] Prepare and check the GitHub release draft against the audited candidate;
+  maintainer publication approval remains outstanding.
+- [x] Correct the published v2.2.0 release description to reflect its actual
+  publication date and historical evidence, preserving its tag and target.
+- [x] Remove retired hosted-sign-in and connector copy from local support/data pages.
 
 ## Boundaries and external follow-ups
 
