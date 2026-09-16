@@ -123,7 +123,7 @@ def test_middleware_uses_limits_and_retries_without_context_summarization():
     assert middleware_names == {
         "ModelCallLimitMiddleware",
         "ModelRetryMiddleware",
-        "ToolCallLimitMiddleware",
+        "ApplicationToolCallLimitMiddleware",
         "ToolRetryMiddleware",
     }
     assert "SummarizationMiddleware" not in middleware_names
@@ -168,7 +168,7 @@ def test_shared_agent_factory_applies_profile_model_prompt_middleware_and_tool_s
     assert {type(item).__name__ for item in create_call["middleware"]} == {
         "ModelCallLimitMiddleware",
         "ModelRetryMiddleware",
-        "ToolCallLimitMiddleware",
+        "ApplicationToolCallLimitMiddleware",
         "ToolRetryMiddleware",
     }
 

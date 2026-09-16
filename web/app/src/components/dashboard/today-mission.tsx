@@ -43,6 +43,7 @@ function accentForIntensity(intensity: UiDayPlan["estimated_intensity"] | null, 
 }
 
 type Props = {
+  publicPreview?: boolean;
   weeklyPlan: UiWeeklyPlan | WeeklyPlanV3;
   warnings?: string[];
   dayOverride?: UiDayPlan;
@@ -86,7 +87,7 @@ function findTodayEntry(weeklyPlan: UiWeeklyPlan, todayIso: string, dayOverride?
   return null;
 }
 
-export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, dailySyncCompleted, nowIso }: Props) {
+export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, dailySyncCompleted, nowIso, publicPreview = false }: Props) {
   const todayIso = athleteLocalYYYYMMDD(nowIso);
   const v3Entry = useMemo(
     () => (isWeeklyPlanV3(weeklyPlan) ? findV3TodayEntry(weeklyPlan, todayIso) : null),
@@ -170,13 +171,17 @@ export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, d
             </div>
           </div>
 
-          <button
+          {publicPreview ? (
+            <Link href="/demo#coach" prefetch={false} className="min-h-11 shrink-0 self-start rounded-full bg-[var(--accent-coach)] px-5 py-2.5 text-sm font-bold text-white">
+              Preview coach
+            </Link>
+          ) : <button
             type="button"
             className="min-h-11 shrink-0 self-start rounded-full bg-[var(--accent-coach)] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 hover:brightness-110 active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-coach)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             onClick={() => openCoachWithPrefill(askCoachPrefill)}
           >
             Ask Coach
-          </button>
+          </button>}
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto pr-2 -mr-2 space-y-4 pb-2">
@@ -220,7 +225,7 @@ export default function TodayMission({ weeklyPlan, warnings = [], dayOverride, d
                   This is a planned recovery day. Protect the recovery intent and use the full plan for the coach&apos;s context.
                 </div>
               )}
-              <Link className="inline-flex text-sm font-semibold text-sky-300 transition hover:text-sky-200" href="/app/plan">
+              <Link className="inline-flex text-sm font-semibold text-sky-300 transition hover:text-sky-200" href={publicPreview ? "/demo#plan" : "/app/plan"} prefetch={publicPreview ? false : undefined}>
                 Open full 28-day plan →
               </Link>
             </div>

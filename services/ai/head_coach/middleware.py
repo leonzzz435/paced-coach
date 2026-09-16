@@ -9,6 +9,7 @@ from langchain.agents.middleware import (
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
 )
+from langchain_core.messages import ToolCall
 from pydantic import BaseModel, ConfigDict, Field
 
 from services.ai.head_coach.run_profiles import HeadCoachRunProfile
@@ -57,15 +58,37 @@ def build_lifecycle_event(
     )
 
 
-def build_head_coach_middleware(profile: HeadCoachRunProfile) -> list:
+class ApplicationToolCallLimitMiddleware(ToolCallLimitMiddleware):
+    """Count application calls while excluding the registered response envelope.
+
+    LangChain's ToolStrategy encodes the final typed answer as a tool call. It
+    must not consume the execution budget, especially for zero-tool memory and
+    presentation profiles. ModelCallLimitMiddleware still bounds answer retries.
+    """
+
+    def __init__(self, *, run_limit: int, response_tool_names: frozenset[str]):
+        super().__init__(run_limit=run_limit, exit_behavior="error")
+        self.response_tool_names = response_tool_names
+
+    def _matches_tool_filter(self, tool_call: ToolCall) -> bool:
+        # This LangChain extension point is exercised through create_agent in
+        # our regression tests so dependency upgrades cannot silently bypass it.
+        return tool_call["name"] not in self.response_tool_names
+
+
+def build_head_coach_middleware(
+    profile: HeadCoachRunProfile,
+    *,
+    response_tool_names: frozenset[str] = frozenset(),
+) -> list:
     return [
         ModelCallLimitMiddleware(
             run_limit=profile.model_call_limit,
             exit_behavior="error",
         ),
-        ToolCallLimitMiddleware(
+        ApplicationToolCallLimitMiddleware(
             run_limit=profile.tool_call_limit,
-            exit_behavior="error",
+            response_tool_names=response_tool_names,
         ),
         ModelRetryMiddleware(max_retries=2, on_failure="error"),
         ToolRetryMiddleware(max_retries=2, on_failure="error"),

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -146,6 +148,40 @@ def test_release_audit_redacts_scanner_failure_output(tmp_path: Path):
     reports = list((repository / ".tmp" / "release-audit").glob("*.json"))
     assert reports
     assert any(secret_value in report.read_text(encoding="utf-8") for report in reports)
+
+
+def test_release_audit_scans_tracked_content_excluded_from_source_archives(tmp_path: Path):
+    repository = _initialize_repository(tmp_path)
+    fake_gitleaks = _write_fake_gitleaks(tmp_path)
+    marker = "synthetic-content-hidden-by-export-ignore"
+    (repository / ".gitattributes").write_text("README.md export-ignore\n", encoding="utf-8")
+    (repository / "README.md").write_text(marker, encoding="utf-8")
+    _run(["git", "add", ".gitattributes", "README.md"], cwd=repository)
+    _run(["git", "commit", "-m", "exclude synthetic content from archives"], cwd=repository)
+
+    result = _audit(repository, fake_gitleaks, FORBIDDEN_CONTENT=marker)
+
+    assert result.returncode != 0
+    assert "tracked-file secret scan failed" in result.stdout
+    assert marker not in result.stdout + result.stderr
+
+
+def test_source_archives_keep_public_environment_examples(tmp_path: Path):
+    repository = _initialize_repository(tmp_path)
+    shutil.copy2(REPO_ROOT / ".gitattributes", repository / ".gitattributes")
+    examples = (".env.example", "web/app/.env.example")
+    for relative_path in examples:
+        target = repository / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Synthetic public setup example\n", encoding="utf-8")
+    _run(["git", "add", ".gitattributes", *examples], cwd=repository)
+    _run(["git", "commit", "-m", "add public setup examples"], cwd=repository)
+
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", "HEAD"], cwd=repository, check=True, capture_output=True,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as bundle:
+        assert set(examples) <= set(bundle.getnames())
 
 
 def test_release_audit_scans_secret_reachable_only_from_another_branch(tmp_path: Path):

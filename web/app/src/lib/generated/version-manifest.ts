@@ -36,7 +36,7 @@ export const VERSION_MANIFEST = {
   },
   "manifest_version": 1,
   "release": {
-    "version": "2.2.0"
+    "version": "2.3.0"
   }
 } as const;
 

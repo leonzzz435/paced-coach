@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.local_usage import LocalUsageCounter, LocalUsageEvent
@@ -147,7 +147,7 @@ async def record_usage_event(
             ON CONFLICT (feature_key, source_type, source_id) DO NOTHING
             RETURNING id
             """
-        ),
+        ).bindparams(bindparam("metadata", type_=LocalUsageEvent.__table__.c.metadata.type)),
         {
             "id": uuid.uuid4(),
             "user_id": user_id,

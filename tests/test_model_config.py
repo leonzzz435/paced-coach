@@ -89,6 +89,50 @@ def test_non_standard_role_mappings_keep_gpt_5_5_family(mode: AIMode):
         assert settings.get_model_for_role(role) == expected_model
 
 
+def test_astra_mode_preserves_support_roles():
+    settings = AISettings(mode=AIMode.ASTRA)
+
+    assert settings.get_model_for_role(AgentRole.HEAD_COACH) == "gpt-6-astra"
+    assert settings.get_model_for_role(AgentRole.SPECIALIST) == "gpt-6-astra"
+    for role in (AgentRole.UI_COMPOSER, AgentRole.MEMORY, AgentRole.COACH_TRIAGE):
+        assert settings.get_model_for_role(role) == "gpt-5.5"
+
+
+def test_astra_mode_loads_from_environment(monkeypatch):
+    monkeypatch.setenv("AI_MODE", "astra")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    assert Config.from_env().ai_mode is AIMode.ASTRA
+
+
+@pytest.mark.parametrize("profile_name", list(RunProfileName))
+def test_astra_responses_preserves_profile_tool_and_reasoning_contract(monkeypatch, profile_name: RunProfileName):
+    monkeypatch.setattr(model_config, "get_config", lambda: Config(openai_api_key="sk-test", ai_mode=AIMode.ASTRA))
+    monkeypatch.setattr(model_config, "ai_settings", _StubSettings("gpt-6-astra"))
+    monkeypatch.setattr(model_config, "ChatOpenAI", lambda **kwargs: types.SimpleNamespace(**kwargs))
+    profile = get_run_profile(profile_name)
+
+    model = ModelSelector.get_llm(
+        profile.model_role,
+        reasoning_effort=profile.reasoning_effort,
+        enable_native_web_search=profile.enable_native_web_search,
+    )
+
+    assert model.model == "gpt-6-astra"
+    assert model.use_responses_api is True
+    assert model.reasoning == {"effort": profile.reasoning_effort}
+    assert model.model_kwargs["max_output_tokens"] == 128000
+    if profile.enable_native_web_search:
+        assert model.model_kwargs["tools"] == [{"type": "web_search"}]
+        assert model.include == ["web_search_call.action.sources"]
+    else:
+        assert "tools" not in model.model_kwargs
+        assert not hasattr(model, "include")
+    for parameter in ("temperature", "top_p", "top_logprobs", "logprobs", "prompt_cache_retention"):
+        assert not hasattr(model, parameter)
+        assert parameter not in model.model_kwargs
+
+
 @pytest.mark.parametrize(
     ("alias_name", "expected_model_name", "expected_effort"),
     [

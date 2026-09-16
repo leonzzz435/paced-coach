@@ -14,6 +14,7 @@ type AnalysisProps = {
     mode?: PlanViewMode;
 };
 type SeasonProps = {
+    nowIso?: string;
     seasonPlan: UiSeasonPlan | SeasonPlanV3;
     selectedPhaseId?: string | null;
     onAskAboutBlock?: OnAskAboutBlock;
@@ -27,6 +28,7 @@ type WeeklyProps = {
     theme?: WeeklyPlanTheme;
     mode?: PlanViewMode;
     nowIso?: string;
+    publicPreview?: boolean;
 };
 
 export function RenderAnalysis({ analysis, onAskAboutBlock, mode }: AnalysisProps) {
@@ -37,10 +39,10 @@ export function RenderAnalysis({ analysis, onAskAboutBlock, mode }: AnalysisProp
     return <AnalysisViewV1 analysis={analysis} onAskAboutBlock={onAskAboutBlock} mode={mode} />;
 }
 
-export function RenderSeasonPlan({ seasonPlan, selectedPhaseId, onAskAboutBlock, onPhaseSelect, mode }: SeasonProps) {
+export function RenderSeasonPlan({ seasonPlan, selectedPhaseId, onAskAboutBlock, onPhaseSelect, mode, nowIso }: SeasonProps) {
     const version = resolveSchemaVersion("season", seasonPlan.schema_version);
     if (version === 3) {
-        return <SeasonPlanViewV3 seasonPlan={seasonPlan as SeasonPlanV3} selectedPhaseId={selectedPhaseId} onAskAboutBlock={onAskAboutBlock} onPhaseSelect={onPhaseSelect} mode={mode} />;
+        return <SeasonPlanViewV3 seasonPlan={seasonPlan as SeasonPlanV3} selectedPhaseId={selectedPhaseId} onAskAboutBlock={onAskAboutBlock} onPhaseSelect={onPhaseSelect} mode={mode} nowIso={nowIso} />;
     }
     if (version !== 1) {
         return <UnsupportedSchema kind="season" schemaVersion={seasonPlan.schema_version} />;
@@ -56,10 +58,10 @@ export function RenderSeasonPlan({ seasonPlan, selectedPhaseId, onAskAboutBlock,
     );
 }
 
-export function RenderWeeklyPlan({ weeklyPlan, highlightDayIds, onAskAboutBlock, theme, mode, nowIso }: WeeklyProps) {
+export function RenderWeeklyPlan({ weeklyPlan, highlightDayIds, onAskAboutBlock, theme, mode, nowIso, publicPreview }: WeeklyProps) {
     const version = resolveSchemaVersion("weekly", weeklyPlan.schema_version);
     if (version === 3) {
-        return <WeeklyPlanViewV3 weeklyPlan={weeklyPlan as WeeklyPlanV3} highlightDayIds={highlightDayIds} onAskAboutBlock={onAskAboutBlock} theme={theme} mode={mode} nowIso={nowIso} />;
+        return <WeeklyPlanViewV3 weeklyPlan={weeklyPlan as WeeklyPlanV3} highlightDayIds={highlightDayIds} onAskAboutBlock={onAskAboutBlock} theme={theme} mode={mode} nowIso={nowIso} publicPreview={publicPreview} />;
     }
     if (version !== 1) {
         return <UnsupportedSchema kind="weekly" schemaVersion={weeklyPlan.schema_version} />;

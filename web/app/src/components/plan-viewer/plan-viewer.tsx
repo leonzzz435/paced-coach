@@ -595,13 +595,15 @@ export default function PlanViewer(props: Props) {
                     weeklyPlan={props.weeklyPlan}
                     onAskAboutBlock={props.onAskAboutBlock}
                     theme="dark"
-                    mode={props.publicPreview ? "landing" : "full"}
+                    mode="full"
                     nowIso={props.nowIso}
+                    publicPreview={props.publicPreview}
                 />
             ) : null}
             {props.seasonPlan ? (
                 <RenderSeasonPlan
                     seasonPlan={props.seasonPlan}
+                    nowIso={props.nowIso}
                     onAskAboutBlock={props.onAskAboutBlock}
                     mode={props.publicPreview ? "landing" : "full"}
                 />

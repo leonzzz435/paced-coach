@@ -178,20 +178,20 @@ export default function CompetitionsPage() {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label className={LABEL_CLASS_NAME}>Name</label>
-            <input className={INPUT_CLASS_NAME} value={form.name} onChange={(e) => updateForm("name", e.target.value)} required />
+            <label className={LABEL_CLASS_NAME} htmlFor="competitions-name">Name</label>
+            <input id="competitions-name" className={INPUT_CLASS_NAME} value={form.name} onChange={(e) => updateForm("name", e.target.value)} required />
             <p className={HELP_TEXT_CLASS_NAME}>Use the exact event name so you can recognize it quickly in planning outputs.</p>
           </div>
 
           <div>
-            <label className={LABEL_CLASS_NAME}>Exact date</label>
-            <input className={INPUT_CLASS_NAME} type="date" value={form.date} onChange={(e) => updateForm("date", e.target.value)} />
+            <label className={LABEL_CLASS_NAME} htmlFor="competitions-exact-date">Exact date</label>
+            <input id="competitions-exact-date" className={INPUT_CLASS_NAME} type="date" value={form.date} onChange={(e) => updateForm("date", e.target.value)} />
             <p className={HELP_TEXT_CLASS_NAME}>Use an exact date whenever possible for accurate countdowns and taper timing.</p>
           </div>
 
           <div>
-            <label className={LABEL_CLASS_NAME}>Approximate date</label>
-            <input
+            <label className={LABEL_CLASS_NAME} htmlFor="competitions-approximate-date">Approximate date</label>
+            <input id="competitions-approximate-date"
               className={INPUT_CLASS_NAME}
               value={form.dateText}
               onChange={(e) => updateForm("dateText", e.target.value)}
@@ -201,8 +201,8 @@ export default function CompetitionsPage() {
           </div>
 
           <div>
-            <label className={LABEL_CLASS_NAME}>Race type</label>
-            <input
+            <label className={LABEL_CLASS_NAME} htmlFor="competitions-race-type">Race type</label>
+            <input id="competitions-race-type"
               className={INPUT_CLASS_NAME}
               value={form.raceType}
               onChange={(e) => updateForm("raceType", e.target.value)}
@@ -212,8 +212,8 @@ export default function CompetitionsPage() {
           </div>
 
           <div>
-            <label className={LABEL_CLASS_NAME}>Priority</label>
-            <select className={INPUT_CLASS_NAME} value={form.priority} onChange={(e) => updateForm("priority", e.target.value)}>
+            <label className={LABEL_CLASS_NAME} htmlFor="competitions-priority">Priority</label>
+            <select id="competitions-priority" className={INPUT_CLASS_NAME} value={form.priority} onChange={(e) => updateForm("priority", e.target.value)}>
               <option value="">(none)</option>
               <option value="A">A</option>
               <option value="B">B</option>
@@ -223,8 +223,8 @@ export default function CompetitionsPage() {
           </div>
 
           <div>
-            <label className={LABEL_CLASS_NAME}>Target time</label>
-            <input
+            <label className={LABEL_CLASS_NAME} htmlFor="competitions-target-time">Target time</label>
+            <input id="competitions-target-time"
               className={INPUT_CLASS_NAME}
               value={form.targetTime}
               onChange={(e) => updateForm("targetTime", e.target.value)}
@@ -235,8 +235,8 @@ export default function CompetitionsPage() {
         </div>
 
         <div className="mt-3">
-          <label className={LABEL_CLASS_NAME}>Course and race notes</label>
-          <textarea
+          <label className={LABEL_CLASS_NAME} htmlFor="competitions-course-and-race-notes">Course and race notes</label>
+          <textarea id="competitions-course-and-race-notes"
             className={TEXTAREA_CLASS_NAME}
             value={form.notes}
             onChange={(e) => updateForm("notes", e.target.value)}

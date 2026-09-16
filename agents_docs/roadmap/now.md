@@ -4,7 +4,11 @@
 
 ## Current Focus
 
-Ship `v2.2.0` as a polished athlete-first, local-first AI endurance coach:
+Prepare the next audited release after the published `v2.2.0`, with security
+updates, opt-in GPT-6 Astra support, repeatable browser acceptance, and current
+release evidence. Execution plan: [September release readiness](../../docs/plans/2026-09-16-release-readiness.md).
+
+Retain the athlete-first, local-first product scope:
 
 - Lead with the complete outcome: season roadmap, 28-day execution block, and plan-aware coach chat.
 - Make “No wearable required” explicit while naming the supported LLM key and athlete-declared context the baseline needs.

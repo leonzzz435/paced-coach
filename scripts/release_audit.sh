@@ -200,7 +200,9 @@ check_remote_ref_freshness() {
 }
 
 export_tracked_files() {
-  if ! git archive --format=tar HEAD | tar -xf - -C "$tracked_export"; then
+  # Audit every indexed path, including files excluded from source archives.
+  # The clean-tree gate above ensures the index equals the candidate commit.
+  if ! git checkout-index --all --prefix="$tracked_export/"; then
     error "failed to create isolated tracked-file export"
     return 1
   fi

@@ -14,6 +14,7 @@ import type { DashboardStateResponse } from "@/lib/types/dashboard";
 
 type Props = {
   initialState: DashboardStateResponse;
+  publicPreview?: boolean;
 };
 
 function FirstRunPanel({ state }: { state: DashboardStateResponse["first_run"] }) {
@@ -87,7 +88,7 @@ function FirstRunPanel({ state }: { state: DashboardStateResponse["first_run"] }
   );
 }
 
-export default function DashboardClient({ initialState }: Props) {
+export default function DashboardClient({ initialState, publicPreview = false }: Props) {
   const [dashboardState, setDashboardState] = useState(initialState);
   const [dismissedProposalId, setDismissedProposalId] = useState<string | null>(null);
 
@@ -124,6 +125,7 @@ export default function DashboardClient({ initialState }: Props) {
         <div className="flex flex-col lg:col-span-3 lg:row-start-2 lg:overflow-hidden">
           {weeklyPlan ? (
             <TodayMission
+              publicPreview={publicPreview}
               weeklyPlan={dashboardState.weekly?.weekly_plan ?? weeklyPlan}
               warnings={dashboardState.today_mission.warnings}
               dayOverride={dashboardState.today_mission.day_override ?? undefined}
@@ -136,12 +138,12 @@ export default function DashboardClient({ initialState }: Props) {
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-2 lg:col-start-4 lg:row-start-2 lg:overflow-hidden">
-          <SeasonProgress seasonPlan={seasonPlan} nowIso={dashboardState.athlete_time.now_local_iso} />
-          <CoachInsight surface={coachSurface} />
+          <SeasonProgress seasonPlan={seasonPlan} nowIso={dashboardState.athlete_time.now_local_iso} allowLinks={!publicPreview} />
+          <CoachInsight surface={coachSurface} allowPlanLink={!publicPreview} />
         </div>
 
         <div className="lg:col-span-5 lg:row-start-3">
-          <WeekStrip weeklyPlan={weeklyPlan} />
+          <WeekStrip weeklyPlan={weeklyPlan} publicPreview={publicPreview} nowIso={dashboardState.athlete_time.now_local_iso} />
         </div>
       </div>
     </div>

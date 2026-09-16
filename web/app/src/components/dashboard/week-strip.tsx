@@ -10,6 +10,8 @@ import { Check } from "lucide-react";
 
 type Props = {
     weeklyPlan: UiWeeklyPlan | undefined;
+    publicPreview?: boolean;
+    nowIso?: string;
 };
 
 function formatHoursMinutes(totalMin: number): string {
@@ -34,8 +36,8 @@ function dayNumber(dateStr: string): string {
     return new Date(ms).toLocaleDateString("en-US", { day: "numeric", timeZone: "UTC" });
 }
 
-export default function WeekStrip({ weeklyPlan }: Props) {
-    const todayIso = useMemo(() => localYYYYMMDD(), []);
+export default function WeekStrip({ weeklyPlan, publicPreview = false, nowIso }: Props) {
+    const todayIso = useMemo(() => nowIso?.slice(0, 10) ?? localYYYYMMDD(), [nowIso]);
     const [completedMap, setCompletedMap] = useState<Record<string, boolean>>({});
     const [, startTransition] = useTransition();
 
@@ -51,6 +53,7 @@ export default function WeekStrip({ weeklyPlan }: Props) {
         e.stopPropagation();
         const currentStatus = isDayDone(day);
         setCompletedMap((prev) => ({ ...prev, [day.day_id]: !currentStatus }));
+        if (publicPreview) return;
         startTransition(async () => {
             try {
                 await toggleDayCompletionAction(day.day_id, !currentStatus);
@@ -88,7 +91,7 @@ export default function WeekStrip({ weeklyPlan }: Props) {
                         <span className="text-sm font-semibold font-mono tabular-nums text-[var(--text-primary)]">{formatHoursMinutes(weekTotalMin)}</span>
                     ) : null}
                 </div>
-                <Link href="/app/plan" className="text-xs font-bold text-[var(--accent-primary)] hover:text-[var(--accent-primary)]/80">
+                <Link href={publicPreview ? "/demo#plan" : "/app/plan"} prefetch={publicPreview ? false : undefined} className="text-xs font-bold text-[var(--accent-primary)] hover:text-[var(--accent-primary)]/80">
                     View full plan →
                 </Link>
             </div>
@@ -118,7 +121,7 @@ export default function WeekStrip({ weeklyPlan }: Props) {
                     }
 
                     return (
-                        <Link key={day.day_id} href={`/app/plan`} className={cardBase} style={!isPast && !done && day.focus_color ? { borderBottomWidth: '4px', borderBottomColor: day.focus_color } : {}}>
+                        <Link key={day.day_id} href={publicPreview ? "/demo#plan" : "/app/plan"} prefetch={publicPreview ? false : undefined} className={cardBase} style={!isPast && !done && day.focus_color ? { borderBottomWidth: '4px', borderBottomColor: day.focus_color } : {}}>
                             <div className="flex items-start justify-between">
                                 <div className="flex flex-col">
                                     <span className={`text-[10px] font-semibold ${isToday ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`}>

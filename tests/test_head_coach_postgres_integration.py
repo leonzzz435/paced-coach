@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from api.models.job import AnalysisJob, JobStatus
 from api.models.local_usage import LocalUsageEvent
 from api.models.user import User
 from api.services.local_usage import ensure_plan_generation_available
+from api.services.local_usage.usage import consume_window_usage
 from api.services.plan_generation_lock import lock_owner_plan_generation
 from services.ai.head_coach.checkpointing import (
     CheckpointScope,
@@ -33,6 +35,40 @@ from tests.test_head_coach_initial_planning import _artifacts
 
 async def _passthrough(_state: HeadCoachGraphState) -> dict[str, Any]:
     return {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", [None, {"cycle_source_id": "synthetic-cycle", "context": {"date": "2026-09-23"}}])
+async def test_adaptive_usage_metadata_round_trips_and_retries_do_not_charge_twice(metadata):
+    database_url = os.getenv("HEAD_COACH_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("HEAD_COACH_TEST_DATABASE_URL is not configured")
+    engine = create_async_engine(database_url.replace("postgresql://", "postgresql+asyncpg://"))
+    owner_id = uuid4()
+    source_id = str(uuid4())
+    window_start = datetime(2026, 9, 21, tzinfo=UTC)
+    try:
+        async with async_sessionmaker(engine)() as db:
+            db.add(User(id=owner_id, email="synthetic-usage@example.test", local_owner_key=str(owner_id)))
+            await db.flush()
+            arguments = {
+                "user_id": owner_id, "feature_key": "adaptive_update",
+                "source_type": "coach_proposal", "source_id": source_id,
+                "window_start": window_start, "window_end": window_start + timedelta(days=28),
+                "limit_value": 4, "exhausted_detail": "Synthetic quota exhausted", "metadata": metadata,
+            }
+            first = await consume_window_usage(db, **arguments)
+            repeated = await consume_window_usage(db, **arguments)
+            event = (await db.execute(select(LocalUsageEvent).where(LocalUsageEvent.user_id == owner_id))).scalar_one()
+
+            assert first.used == repeated.used == 1
+            assert first.remaining == repeated.remaining == 3
+            assert event.payload_metadata == metadata
+            # A scoped rollback leaves no synthetic user, event or counter behind.
+            await db.rollback()
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.integration

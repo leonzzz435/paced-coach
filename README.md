@@ -1,22 +1,26 @@
 # paced.coach
 
-Your season roadmap, next 28 days, and an AI coach that stays with the plan.
+**An open-source endurance coach that turns your constraints into a plan—and keeps the conversation connected to it.**
 
 Describe your goals, training history, availability, and constraints. paced.coach turns that athlete-declared context into a personal season strategy and a day-by-day execution block, then carries the same context into coach chat.
 
-**No wearable required.** You bring an OpenAI API key and the context only you know. Version 2.2.0 is deliberately provider-free: no activity-platform or recovery-device account is connected to the app.
+**No wearable required.** Bring an OpenAI API key and the context only you know. No activity-platform or recovery-device account is connected to the app. GPT-6 Astra is available through the opt-in `AI_MODE=astra` configuration.
 
 The complete app runs on your machine by default: Next.js frontend, FastAPI backend, Celery/LangGraph coaching workflows, and local Postgres/Redis. There is no hosted auth, hosted payment, or production deployment requirement.
 
 Not medical advice.
 
-> **Pre-candidate asset notice:** The README images were generated from sanitized fixture data and contain no local account data, but they show the July pre-Head-Coach renderer. They must be recaptured from the sanitized schema-v3 demo before the v2.2.0 candidate is certified.
+The next release is being prepared on this branch. See the
+[release verification record](docs/releases/v2.3.0-verification.md) for completed
+checks, live-model evidence and remaining gates. Published tags remain unchanged.
 
 ![paced.coach local-first AI endurance coach](docs/assets/readme/paced-coach-hero.png)
 
 ## Preview
 
-The screenshots below were generated from the public `/demo` route using sanitized fixture data. They do not read a local database or real athlete account.
+The screenshots below use the public `/demo` route and synthetic fixture data.
+They do not read a local database or a real athlete account. The sample coach
+conversation is illustrative; it is not a recorded model response.
 
 <p>
   <img src="docs/assets/readme/paced-coach-plan.png" alt="paced.coach generated training plan with season roadmap and 28-day calendar" width="100%" />
@@ -41,6 +45,9 @@ Open the same preview locally at `http://localhost:3000/demo` after `make start`
 - Pixi
 - Node.js 24 and npm
 - One OpenAI API key: `OPENAI_API_KEY`
+
+The software is MIT-licensed; OpenAI API usage is billed separately. The app and
+database run locally, while relevant coaching context is sent to OpenAI.
 
 ## Quick Start
 
@@ -93,7 +100,11 @@ DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/paced_coach
 REDIS_URL=redis://localhost:6379/0
 ```
 
-External training-data connectors are intentionally not shipped in v2.2.0. The full plan and coach flow works from declared context alone.
+For GPT-6 Astra, change `AI_MODE=cost_effective` to `AI_MODE=astra` and restart the
+API and worker. See [model selection](docs/local-first/models.md) for role mapping
+and reasoning profiles. The default remains unchanged.
+
+External training-data connectors are intentionally not shipped. The full plan and coach flow works from declared context alone.
 
 ## Local Data
 
@@ -139,6 +150,8 @@ npm run test
 npm run type-check
 npm run lint
 npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
 Useful services:
@@ -165,7 +178,45 @@ tests/               Python tests
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with [CONTRIBUTING.md](CONTRIBUTING.md): setup, checks and useful first
+contributions. UI accessibility, synthetic agent evaluations and setup
+reproducibility are particularly useful areas.
+
+## Why build this as an agent?
+
+The interesting part starts when a training goal conflicts with real life.
+The Head Coach can ask a clarification, preserve the interrupted run, and continue
+after the athlete answers. Coach conversations share the saved plan; proposed
+changes pass through explicit approval and application validation.
+
+The engineering is designed around those boundaries:
+
+- LangGraph checkpoints in local PostgreSQL preserve execution across restarts.
+- Owner locks and idempotency receipts protect against duplicate work and retries.
+- A single transaction publishes the canonical plan and decision event.
+- Typed artifacts and versioned renderers keep model output separate from UI code.
+- Browser tests and PostgreSQL integration tests exercise application behavior;
+  live synthetic model runs are reported separately.
+
+See the [architecture](docs/architecture/overview.md) and the
+[Agents API evaluation](docs/architecture/agents-api-decision.md). Supporting a
+new model does not require replacing the workflow that owns your data.
+
+## From Garmin AI Coach to paced.coach
+
+I’m [Leon Zajchowski](https://github.com/leonzzz435). This project follows
+[Garmin AI Coach](https://github.com/leonzzz435/garmin-ai-coach), which I built
+around my own endurance training and described in
+[the original article](https://medium.com/@leon_zajchowski/i-fired-my-garmin-coach-and-built-an-ai-to-train-for-an-ironman-70-3-heres-what-happened-09a404cecd78).
+
+That project started with activity data. This one starts with the athlete’s
+declared goals, history, schedule and constraints. It explores how to build a
+complete coaching application around an agent: durable execution, explicit
+uncertainty, inspectable decisions and controlled plan changes.
+
+It is an engineering reference and a working local app. It is not clinical
+validation, a promise of better race results, or a replacement for qualified
+medical advice. See [coaching limitations](docs/local-first/ai-coaching-limitations.md).
 
 ## Security
 

@@ -188,7 +188,7 @@ def _get_database_url() -> str:
 
 @lru_cache(maxsize=1)
 def _get_engine():
-    return create_engine(_get_database_url())
+    return create_engine(_get_database_url(), hide_parameters=True)
 
 
 def get_sync_session() -> Session:
